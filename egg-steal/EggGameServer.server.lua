@@ -1,0 +1,1373 @@
+-- EggGameServer (Script)
+-- 置き場所: ServerScriptService
+-- マップ・ベース・卵・生き物・お金・どろぼう処理をすべてここで作ります。
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local DataStoreService = game:GetService("DataStoreService")
+local Debris = game:GetService("Debris")
+
+print("[卵どろぼう] サーバースクリプト起動")
+local Config = require(ReplicatedStorage:WaitForChild("EggConfig"))
+print("[卵どろぼう] EggConfig 読み込みOK")
+
+local S = Config.BaseSize
+local HALF = S / 2
+
+--------------------------------------------------------------------------
+-- RemoteEvents（クライアントとの通信）
+--------------------------------------------------------------------------
+local remotes = ReplicatedStorage:FindFirstChild("EggRemotes")
+if remotes then
+	remotes:Destroy()
+end
+remotes = Instance.new("Folder")
+remotes.Name = "EggRemotes"
+remotes.Parent = ReplicatedStorage
+
+local function makeRemote(name)
+	local r = Instance.new("RemoteEvent")
+	r.Name = name
+	r.Parent = remotes
+	return r
+end
+
+local BuyUpgrade = makeRemote("BuyUpgrade")
+local LockBase = makeRemote("LockBase")
+local Shove = makeRemote("Shove")
+local Notify = makeRemote("Notify")
+local DropItem = makeRemote("DropItem")
+local RedeemCode = makeRemote("RedeemCode")
+
+local function notify(player, text)
+	if player and player.Parent then
+		Notify:FireClient(player, text)
+	end
+end
+
+local function now()
+	return workspace:GetServerTimeNow()
+end
+
+--------------------------------------------------------------------------
+-- アイテム（卵 / 生き物）
+-- item = { k = "egg", r = レア度, s = 柄の番号 }  または  { k = "pet", r = レア度, s = 種類の番号 }
+--------------------------------------------------------------------------
+local EGG_PATTERNS = { "sprinkle", "stripes", "dots", "band", "tiara" }
+
+local function eggStyleCount(r)
+	return #EGG_PATTERNS * #Config.Rarities[r].Palettes
+end
+
+local function itemInfo(item)
+	local rar = Config.Rarities[item.r]
+	if item.k == "pet" then
+		local sp = Config.Species[item.r][item.s]
+		return sp.Name, sp.Income
+	end
+	return rar.Name .. "の卵", rar.Income
+end
+
+local function validItem(v)
+	if type(v) == "number" and Config.Rarities[v] then
+		return { k = "egg", r = v, s = 1 } -- 古いセーブデータ用
+	end
+	if type(v) ~= "table" or not Config.Rarities[v.r] or type(v.s) ~= "number" then
+		return nil
+	end
+	if v.k == "egg" and v.s >= 1 and v.s <= eggStyleCount(v.r) then
+		return { k = "egg", r = v.r, s = v.s }
+	end
+	if v.k == "pet" and Config.Species[v.r] and Config.Species[v.r][v.s] then
+		return { k = "pet", r = v.r, s = v.s }
+	end
+	return nil
+end
+
+--------------------------------------------------------------------------
+-- セーブデータ
+--------------------------------------------------------------------------
+local store = nil
+if Config.UseDataStore then
+	local ok, ds = pcall(function()
+		return DataStoreService:GetDataStore("EggStealData_v2")
+	end)
+	if ok then
+		store = ds
+	end
+end
+
+local function loadData(player)
+	if not store then
+		return nil
+	end
+	local ok, data = pcall(function()
+		return store:GetAsync("p_" .. player.UserId)
+	end)
+	if ok then
+		return data
+	end
+	warn("セーブデータを読み込めませんでした: " .. tostring(data))
+	return nil
+end
+
+local function saveData(player, st)
+	if not store then
+		return
+	end
+	local items = {}
+	for i = 1, Config.MaxSlots do
+		items[i] = st.items[i] or 0
+	end
+	local data = { cash = st.cash, slots = st.slots, speedLevel = st.speedLevel, eggs = items }
+	local ok, err = pcall(function()
+		store:SetAsync("p_" .. player.UserId, data)
+	end)
+	if not ok then
+		warn("セーブできませんでした: " .. tostring(err))
+	end
+end
+
+--------------------------------------------------------------------------
+-- 便利関数
+--------------------------------------------------------------------------
+local function makePart(props, className)
+	local p = Instance.new(className or "Part")
+	p.Anchored = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	if props.Shape then
+		p.Shape = props.Shape -- 形を先に決めてからサイズを入れる
+	end
+	for k, v in pairs(props) do
+		if k ~= "Shape" and k ~= "Parent" then
+			p[k] = v
+		end
+	end
+	p.Parent = props.Parent
+	return p
+end
+
+local function makeLabel(parent, text, color, size, offsetY, maxDistance)
+	local bb = Instance.new("BillboardGui")
+	bb.Size = size
+	bb.StudsOffset = Vector3.new(0, offsetY, 0)
+	bb.MaxDistance = maxDistance
+	bb.AlwaysOnTop = false
+	bb.Parent = parent
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBold
+	label.TextScaled = true
+	label.TextColor3 = color
+	label.TextStrokeTransparency = 0
+	label.Text = text
+	label.Parent = bb
+	return label
+end
+
+local function formatNumber(n)
+	if n >= 1e9 then
+		return string.format("%.1fB", n / 1e9)
+	elseif n >= 1e6 then
+		return string.format("%.1fM", n / 1e6)
+	elseif n >= 1e3 then
+		return string.format("%.1fK", n / 1e3)
+	end
+	return tostring(math.floor(n))
+end
+
+local function weightedPick(list)
+	local total = 0
+	for _, v in ipairs(list) do
+		total += v.Weight
+	end
+	local n = math.random() * total
+	for i, v in ipairs(list) do
+		n -= v.Weight
+		if n <= 0 then
+			return i
+		end
+	end
+	return 1
+end
+
+--------------------------------------------------------------------------
+-- 見た目づくり（外部アセットなし。すべて Part の組み合わせ）
+--------------------------------------------------------------------------
+local SMOOTH = Enum.Material.SmoothPlastic
+local NEON = Enum.Material.Neon
+local WHITE = Color3.new(1, 1, 1)
+local DARK = Color3.fromRGB(25, 25, 30)
+
+local function deco(model, props, className)
+	props.CanCollide = false
+	props.Parent = model
+	return makePart(props, className)
+end
+
+local function ball(model, d, pos, color, mat)
+	return deco(model, { Shape = Enum.PartType.Ball, Size = Vector3.new(d, d, d), Position = pos, Color = color, Material = mat or SMOOTH })
+end
+
+local function ellipsoid(model, size, cf, color, mat)
+	local p = deco(model, { Size = size, CFrame = cf, Color = color, Material = mat or SMOOTH })
+	local mesh = Instance.new("SpecialMesh")
+	mesh.MeshType = Enum.MeshType.Sphere
+	mesh.Parent = p
+	return p
+end
+
+local function block(model, size, cf, color, mat)
+	return deco(model, { Size = size, CFrame = cf, Color = color, Material = mat or SMOOTH })
+end
+
+-- 縦向きの円柱（length = 高さ）
+local function vcyl(model, length, diameter, cf, color, mat)
+	return deco(model, {
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(length, diameter, diameter),
+		CFrame = cf * CFrame.Angles(0, 0, math.pi / 2),
+		Color = color,
+		Material = mat or SMOOTH,
+	})
+end
+
+-- 卵（中心が基準点）
+local function buildEgg(r, s)
+	local rar = Config.Rarities[r]
+	local pattern = EGG_PATTERNS[(s - 1) % #EGG_PATTERNS + 1]
+	local pal = rar.Palettes[math.floor((s - 1) / #EGG_PATTERNS) % #rar.Palettes + 1]
+	local accentMat = r >= 5 and NEON or SMOOTH
+	local model = Instance.new("Model")
+	model.Name = "Egg"
+
+	local root = ellipsoid(model, Vector3.new(2, 2.6, 2), CFrame.new(), pal.Main)
+	root.Reflectance = 0.08
+
+	local function surf(theta, h, out)
+		local k = math.sqrt(math.max(0, 1 - (h / 1.3) ^ 2)) * (1 + (out or 0))
+		return Vector3.new(math.cos(theta) * k, h, math.sin(theta) * k)
+	end
+	local function ring(h, thick, color, mat)
+		local k = math.sqrt(math.max(0, 1 - (h / 1.3) ^ 2))
+		vcyl(model, thick, 2 * k + 0.08, CFrame.new(0, h, 0), color, mat)
+	end
+
+	if pattern == "sprinkle" then
+		local rng = Random.new(s * 7 + r)
+		for _ = 1, 14 do
+			ball(model, 0.22, surf(rng:NextNumber(0, math.pi * 2), rng:NextNumber(-1.0, 1.0)), pal.Accent, accentMat)
+		end
+	elseif pattern == "stripes" then
+		ring(-0.55, 0.22, pal.Accent, accentMat)
+		ring(0, 0.22, pal.Accent, accentMat)
+		ring(0.55, 0.22, pal.Accent, accentMat)
+	elseif pattern == "dots" then
+		for k = 0, 3 do
+			ball(model, 0.5, surf(k * math.pi / 2, -0.4), pal.Accent, accentMat)
+			ball(model, 0.45, surf(k * math.pi / 2 + math.pi / 4, 0.45), pal.Accent, accentMat)
+		end
+	elseif pattern == "band" then
+		ring(-0.1, 0.5, pal.Accent, accentMat)
+		for k = 0, 3 do
+			ball(model, 0.35, surf(k * math.pi / 2 + math.pi / 4, -0.1, 0.12), WHITE, NEON)
+		end
+	else -- tiara
+		ring(0.75, 0.18, pal.Accent, accentMat)
+		for k = 0, 4 do
+			ball(model, 0.3, surf(k * math.pi * 2 / 5, 0.95, 0.05), pal.Accent, accentMat)
+		end
+		ball(model, 0.4, Vector3.new(0, 1.3, 0), pal.Accent, NEON)
+	end
+
+	-- つやのハイライト
+	local gloss = ball(model, 0.45, surf(-math.pi / 2 - 0.5, 0.6, 0.02), WHITE)
+	gloss.Transparency = 0.45
+
+	if r >= 4 then
+		local light = Instance.new("PointLight")
+		light.Color = pal.Accent
+		light.Range = 10
+		light.Brightness = 2
+		light.Parent = root
+	end
+	if r >= 5 then
+		local sparkles = Instance.new("Sparkles")
+		sparkles.SparkleColor = pal.Accent
+		sparkles.Parent = root
+	end
+	if r >= #Config.Rarities then
+		-- いちばん上のレア度は炎のオーラ
+		local fire = Instance.new("Fire")
+		fire.Color = pal.Accent
+		fire.SecondaryColor = pal.Main
+		fire.Size = 3
+		fire.Heat = 3
+		fire.Parent = root
+	end
+
+	model.WorldPivot = CFrame.new()
+	return model, root, 2.4
+end
+
+-- 生き物（足元が基準点、正面は -Z）
+local function buildCreature(r, s)
+	local sp = Config.Species[r][s]
+	local model = Instance.new("Model")
+	model.Name = sp.Name
+	local main, accent = sp.Color, sp.Accent
+	local mat = sp.Material or SMOOTH
+	local lift = sp.Lift or 0
+	local feats = {}
+	for _, f in ipairs(sp.Features) do
+		feats[f] = true
+	end
+	local function P(x, y, z)
+		return Vector3.new(x, y + lift, z)
+	end
+	local function CF(x, y, z)
+		return CFrame.new(P(x, y, z))
+	end
+
+	local bodyParts = {}
+	local root, d
+	if sp.Body == "bean" then
+		root = ellipsoid(model, Vector3.new(2.2, 2.6, 2.0), CF(0, 1.3, 0), main, mat)
+		d = { cy = 1.3, top = 2.6, side = 1.1, back = 1.0, eyeY = 1.6, eyeZ = -0.9, headZ = 0 }
+	elseif sp.Body == "block" then
+		root = block(model, Vector3.new(2.4, 2, 2), CF(0, 1, 0), main, mat)
+		d = { cy = 1, top = 2, side = 1.2, back = 1, eyeY = 1.3, eyeZ = -1.0, headZ = 0 }
+	elseif sp.Body == "worm" then
+		root = ball(model, 1.8, P(0, 0.9, -1.1), main, mat)
+		table.insert(bodyParts, ball(model, 1.6, P(0, 0.8, 0.2), main, mat))
+		table.insert(bodyParts, ball(model, 1.3, P(0, 0.65, 1.4), main, mat))
+		d = { cy = 0.8, top = 1.8, side = 0.9, back = 2.05, eyeY = 1.1, eyeZ = -1.88, headZ = -1.1 }
+	else -- ball
+		root = ball(model, 2.2, P(0, 1.1, 0), main, mat)
+		d = { cy = 1.1, top = 2.2, side = 1.1, back = 1.1, eyeY = 1.35, eyeZ = -1.0, headZ = 0 }
+	end
+	table.insert(bodyParts, root)
+	if sp.Transparency then
+		for _, p in ipairs(bodyParts) do
+			p.Transparency = sp.Transparency
+		end
+	end
+	local wingZ = sp.Body == "worm" and 0.2 or 0.1
+	local glow = r >= 5 and NEON or SMOOTH
+
+	-- 目
+	for _, sx in ipairs({ -1, 1 }) do
+		ball(model, 0.55, P(sx * 0.38, d.eyeY, d.eyeZ + 0.12), WHITE)
+		ball(model, 0.3, P(sx * 0.38, d.eyeY, d.eyeZ - 0.1), DARK)
+		ball(model, 0.1, P(sx * 0.38 + 0.07, d.eyeY + 0.07, d.eyeZ - 0.24), WHITE, NEON)
+	end
+	-- 口 / くちばし
+	if feats.beak then
+		block(model, Vector3.new(0.5, 0.35, 0.5), CF(0, d.eyeY - 0.4, d.eyeZ - 0.1) * CFrame.Angles(0, math.rad(45), 0), Color3.fromRGB(255, 160, 40))
+	else
+		block(model, Vector3.new(0.45, 0.1, 0.2), CF(0, d.eyeY - 0.45, d.eyeZ - 0.1), DARK)
+	end
+
+	for _, sx in ipairs({ -1, 1 }) do
+		if feats.blush then
+			ball(model, 0.35, P(sx * 0.65, d.eyeY - 0.3, d.eyeZ + 0.15), Color3.fromRGB(255, 140, 170))
+		end
+		if feats.wings then
+			block(model, Vector3.new(0.2, 1.0, 1.4), CF(sx * (d.side + 0.05), d.cy + 0.1, wingZ) * CFrame.Angles(0, 0, -sx * math.rad(25)), accent)
+		end
+		if feats.bigWings then
+			local w = block(model, Vector3.new(0.2, 2.4, 2.0), CF(sx * (d.side + 0.7), d.cy + 1.0, wingZ + 0.3) * CFrame.Angles(0, 0, -sx * math.rad(40)), accent, glow)
+			w.Transparency = 0.1
+		end
+		if feats.feet then
+			block(model, Vector3.new(0.5, 0.2, 0.7), CF(sx * 0.45, 0.1, -0.2), Color3.fromRGB(255, 160, 40))
+		end
+		if feats.legs then
+			local zs = sp.Body == "worm" and { -1.1, 0.2, 1.4 } or { -0.6, 0.6 }
+			for _, z in ipairs(zs) do
+				vcyl(model, 0.7, 0.45, CF(sx * d.side * 0.75, 0.35, z), main:Lerp(Color3.new(0, 0, 0), 0.25), mat)
+			end
+		end
+		if feats.ears then
+			block(model, Vector3.new(0.6, 0.6, 0.25), CF(sx * 0.6, d.top - 0.05, d.headZ) * CFrame.Angles(0, 0, math.rad(45)), main, mat)
+			block(model, Vector3.new(0.35, 0.35, 0.1), CF(sx * 0.6, d.top - 0.05, d.headZ - 0.14) * CFrame.Angles(0, 0, math.rad(45)), accent)
+		end
+		if feats.roundEars then
+			ball(model, 0.75, P(sx * 0.7, d.top - 0.1, d.headZ), main, mat)
+			ball(model, 0.4, P(sx * 0.7, d.top - 0.1, d.headZ - 0.22), accent)
+		end
+		if feats.longEars then
+			local cf = CF(sx * 0.4, d.top + 0.65, d.headZ) * CFrame.Angles(0, 0, -sx * math.rad(12))
+			ellipsoid(model, Vector3.new(0.5, 1.7, 0.35), cf, main, mat)
+			ellipsoid(model, Vector3.new(0.25, 1.2, 0.1), cf * CFrame.new(0, 0, -0.15), accent)
+		end
+		if feats.antenna then
+			vcyl(model, 0.9, 0.1, CF(sx * 0.35, d.top + 0.35, d.headZ) * CFrame.Angles(0, 0, -sx * math.rad(15)), DARK)
+			ball(model, 0.35, P(sx * 0.47, d.top + 0.8, d.headZ), accent, NEON)
+		end
+		if feats.fins then
+			block(model, Vector3.new(1.2, 0.2, 0.8), CF(sx * (d.side + 0.45), d.cy - 0.2, 0) * CFrame.Angles(0, 0, sx * math.rad(20)), accent)
+		end
+	end
+
+	if feats.tail then
+		ball(model, 0.8, P(0, d.cy - 0.2, d.back + 0.15), accent)
+	end
+	if feats.horn then
+		block(model, Vector3.new(0.35, 1.1, 0.35), CF(0, d.top + 0.35, d.headZ - 0.3) * CFrame.Angles(math.rad(-25), 0, 0), accent, glow)
+	end
+	if feats.spikes then
+		for i = -1, 1 do
+			local pos = sp.Body == "worm" and CF(0, 1.55, 0.3 + i * 0.6) or CF(0, d.top - 0.05, 0.2 + i * 0.55)
+			block(model, Vector3.new(0.45, 0.45, 0.45), pos * CFrame.Angles(math.rad(45), 0, 0), accent, glow)
+		end
+	end
+	if feats.crest then
+		for k = -1, 1 do
+			block(model, Vector3.new(0.15, 0.9, 0.4), CF(k * 0.25, d.top + 0.3, d.headZ) * CFrame.Angles(0, 0, -k * math.rad(20)), accent, NEON)
+		end
+	end
+	if feats.leaf then
+		vcyl(model, 0.3, 0.1, CF(0, d.top + 0.05, d.headZ), Color3.fromRGB(120, 80, 40))
+		ellipsoid(model, Vector3.new(1.0, 0.2, 0.55), CF(0.35, d.top + 0.2, d.headZ) * CFrame.Angles(0, 0, math.rad(20)), Color3.fromRGB(110, 200, 90))
+	end
+	if feats.halo then
+		local h = vcyl(model, 0.12, 1.5, CF(0, d.top + 0.7, d.headZ), Color3.fromRGB(255, 240, 150), NEON)
+		h.Transparency = 0.2
+	end
+	if feats.crown then
+		vcyl(model, 0.5, 1.1, CF(0, d.top + 0.15, d.headZ), Color3.fromRGB(255, 200, 40), Enum.Material.Metal)
+		for k = 0, 3 do
+			local a = k * math.pi / 2
+			ball(model, 0.25, P(math.cos(a) * 0.55, d.top + 0.45, d.headZ + math.sin(a) * 0.55), accent, NEON)
+		end
+	end
+	if feats.tentacles then
+		for k = 0, 4 do
+			local a = k * math.pi * 2 / 5
+			vcyl(model, 1.2, 0.18, CF(math.cos(a) * 0.6, -0.4, math.sin(a) * 0.6), accent)
+		end
+	end
+	if feats.stars then
+		ball(model, 0.35, P(-1.7, d.cy + 0.9, 0), accent, NEON)
+		ball(model, 0.3, P(1.6, d.cy + 0.4, 0.3), accent, NEON)
+		ball(model, 0.25, P(0.4, d.top + 1.0, 0.6), accent, NEON)
+		local sparkles = Instance.new("Sparkles")
+		sparkles.SparkleColor = accent
+		sparkles.Parent = root
+	end
+	if feats.fire then
+		local fire = Instance.new("Fire")
+		fire.Color = accent
+		fire.SecondaryColor = main
+		fire.Size = 3
+		fire.Heat = 4
+		fire.Parent = root
+	end
+	if r >= 5 then
+		local light = Instance.new("PointLight")
+		light.Color = accent
+		light.Range = 12
+		light.Brightness = 2
+		light.Parent = root
+	end
+
+	-- 名前ラベルの高さ（頭の上）
+	local extra = (feats.longEars or feats.halo or feats.antenna or feats.bigWings) and 1.2 or 0
+	local labelOffset = d.top + lift - root.Position.Y + 1.5 + extra
+
+	model.WorldPivot = CFrame.new()
+	local scale = sp.Scale or 1
+	if scale ~= 1 then
+		model:ScaleTo(scale)
+	end
+	return model, root, labelOffset * scale
+end
+
+local function buildItem(item)
+	local model, root, labelOffset
+	if item.k == "pet" then
+		model, root, labelOffset = buildCreature(item.r, item.s)
+	else
+		model, root, labelOffset = buildEgg(item.r, item.s)
+	end
+	local name, income = itemInfo(item)
+	makeLabel(root, name .. "\n+" .. formatNumber(income) .. "/秒", Config.Rarities[item.r].Color, UDim2.fromOffset(140, 44), labelOffset, 50)
+	return model, root
+end
+
+-- groundCF = 地面（台の上など）の位置。卵は中心、生き物は足元を合わせる。
+local function placeItem(model, item, groundCF)
+	if item.k == "egg" then
+		model:PivotTo(groundCF * CFrame.new(0, 1.3, 0))
+	else
+		model:PivotTo(groundCF)
+	end
+end
+
+--------------------------------------------------------------------------
+-- マップ作成
+--------------------------------------------------------------------------
+local old = workspace:FindFirstChild("EggMap")
+if old then
+	old:Destroy()
+end
+local map = Instance.new("Folder")
+map.Name = "EggMap"
+map.Parent = workspace
+
+-- 地面を芝生にする
+local GRASS_COLOR = Color3.fromRGB(90, 160, 80)
+local baseplate = workspace:FindFirstChild("Baseplate")
+if baseplate and baseplate:IsA("BasePart") then
+	for _, child in ipairs(baseplate:GetChildren()) do
+		if child:IsA("Texture") or child:IsA("Decal") then
+			child:Destroy() -- 灰色のマス目模様を消す
+		end
+	end
+	baseplate.Material = Enum.Material.Grass
+	baseplate.Color = GRASS_COLOR
+else
+	makePart({
+		Name = "Ground",
+		Size = Vector3.new(420, 2, 420),
+		Position = Vector3.new(0, -1, 0),
+		Color = GRASS_COLOR,
+		Material = Enum.Material.Grass,
+		Parent = map,
+	})
+end
+
+-- 中央の卵畑
+makePart({
+	Name = "EggField",
+	Shape = Enum.PartType.Cylinder,
+	Size = Vector3.new(1, Config.FieldRadius * 2 + 8, Config.FieldRadius * 2 + 8),
+	CFrame = CFrame.new(0, 0.5, 0) * CFrame.Angles(0, 0, math.pi / 2),
+	Color = Color3.fromRGB(230, 200, 140),
+	Material = Enum.Material.Sand,
+	Parent = map,
+})
+local fieldSign = makePart({
+	Name = "FieldSign",
+	Size = Vector3.new(1, 1, 1),
+	Position = Vector3.new(0, 1, 0),
+	Transparency = 1,
+	CanCollide = false,
+	Parent = map,
+})
+makeLabel(fieldSign, "卵畑", Color3.fromRGB(255, 240, 180), UDim2.fromOffset(200, 60), 14, 300)
+
+local fieldFolder = Instance.new("Folder")
+fieldFolder.Name = "FieldEggs"
+fieldFolder.Parent = map
+
+local baseColors = {
+	Color3.fromRGB(230, 80, 80),
+	Color3.fromRGB(80, 140, 240),
+	Color3.fromRGB(90, 200, 110),
+	Color3.fromRGB(240, 200, 60),
+	Color3.fromRGB(170, 100, 230),
+	Color3.fromRGB(240, 140, 60),
+	Color3.fromRGB(70, 200, 210),
+	Color3.fromRGB(240, 120, 190),
+}
+
+local states = {} -- [player] = プレイヤーの状態
+local bases = {}
+
+-- 前方宣言
+local startCarry
+local refreshSlot
+local hatchSlot
+
+local function onSlotPrompt(base, slot, player)
+	local owner = base.owner
+	local ownerState = owner and states[owner]
+	local item = ownerState and ownerState.items[slot]
+	local st = states[player]
+	if not item or not st or base.busy[slot] then
+		return
+	end
+	local name, income = itemInfo(item)
+
+	if player == owner then
+		if item.k == "egg" then
+			hatchSlot(base, slot, player) -- 自分の卵 → 開ける
+		else
+			-- 自分の生き物 → 売る
+			ownerState.items[slot] = nil
+			refreshSlot(base, slot)
+			local price = income * Config.SellMultiplier
+			st.cash += price
+			st.cashValue.Value = st.cash
+			notify(player, name .. "を $" .. formatNumber(price) .. " で売った")
+		end
+		return
+	end
+
+	-- 他人のもの → 盗む
+	if now() < base.lockedUntil then
+		notify(player, "このベースはロック中！")
+		return
+	end
+	if st.carrying then
+		notify(player, "1個しか持てない！")
+		return
+	end
+	ownerState.items[slot] = nil
+	refreshSlot(base, slot)
+	startCarry(player, item, { owner = owner, slot = slot })
+	notify(player, name .. "を盗んだ！自分のベースへ運ぼう")
+	notify(owner, player.DisplayName .. " に " .. name .. "を盗まれた！押して取り返そう [F]")
+end
+
+local function buildBase(index)
+	local angle = (index - 1) / Config.MaxBases * math.pi * 2
+	local center = Vector3.new(math.cos(angle) * Config.BaseRingRadius, 0, math.sin(angle) * Config.BaseRingRadius)
+	local cf = CFrame.lookAt(center, Vector3.new(0, 0, 0)) -- 入口(-Z)が中央を向く
+	local color = baseColors[(index - 1) % #baseColors + 1]
+
+	local model = Instance.new("Model")
+	model.Name = "Base" .. index
+	model.Parent = map
+
+	local base = {
+		index = index,
+		cf = cf,
+		color = color,
+		model = model,
+		owner = nil,
+		lockedUntil = 0,
+		slotParts = {},
+		slotModels = {},
+		busy = {},
+	}
+
+	makePart({
+		Name = "Floor",
+		Size = Vector3.new(S, 1, S),
+		CFrame = cf * CFrame.new(0, 0.5, 0),
+		Color = Color3.fromRGB(200, 200, 200),
+		Material = Enum.Material.Concrete,
+		Parent = model,
+	})
+
+	local function wall(size, offset)
+		return makePart({ Name = "Wall", Size = size, CFrame = cf * offset, Color = color, Parent = model })
+	end
+	wall(Vector3.new(S, 10, 1), CFrame.new(0, 6, HALF))
+	wall(Vector3.new(1, 10, S), CFrame.new(-HALF, 6, 0))
+	wall(Vector3.new(1, 10, S), CFrame.new(HALF, 6, 0))
+	local frontWidth = HALF - 6
+	wall(Vector3.new(frontWidth, 10, 1), CFrame.new(-(6 + frontWidth / 2), 6, -HALF))
+	wall(Vector3.new(frontWidth, 10, 1), CFrame.new(6 + frontWidth / 2, 6, -HALF))
+
+	-- ロック時に見える赤いバリア（通過はでき、侵入者はサーバーが外に出す）
+	base.barrier = makePart({
+		Name = "LockBarrier",
+		Size = Vector3.new(12, 10, 0.5),
+		CFrame = cf * CFrame.new(0, 6, -HALF),
+		Color = Color3.fromRGB(255, 40, 40),
+		Material = Enum.Material.ForceField,
+		Transparency = 1,
+		CanCollide = false,
+		Parent = model,
+	})
+
+	local signAnchor = makePart({
+		Name = "Sign",
+		Size = Vector3.new(1, 1, 1),
+		CFrame = cf * CFrame.new(0, 1, 0),
+		Transparency = 1,
+		CanCollide = false,
+		Parent = model,
+	})
+	base.signLabel = makeLabel(signAnchor, "空きベース", WHITE, UDim2.fromOffset(260, 60), 16, 300)
+
+	for i = 1, Config.MaxSlots do
+		local row = math.floor((i - 1) / 5)
+		local col = (i - 1) % 5
+		local ped = makePart({
+			Name = "Slot" .. i,
+			Size = Vector3.new(4, 2, 4),
+			CFrame = cf * CFrame.new(-16 + col * 8, 2, 6 + row * 8),
+			Color = Color3.fromRGB(120, 120, 120),
+			Material = Enum.Material.Marble,
+			Transparency = 0.75,
+			Parent = model,
+		})
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "StealPrompt"
+		prompt.ActionText = "盗む"
+		prompt.HoldDuration = Config.StealHoldTime
+		prompt.MaxActivationDistance = 8
+		prompt.RequiresLineOfSight = false
+		prompt.Enabled = false
+		prompt:SetAttribute("StealPrompt", true)
+		prompt:SetAttribute("OwnerUserId", 0)
+		prompt:SetAttribute("ItemKind", "")
+		prompt.Parent = ped
+		prompt.Triggered:Connect(function(player)
+			onSlotPrompt(base, i, player)
+		end)
+		base.slotParts[i] = ped
+	end
+
+	return base
+end
+
+for i = 1, Config.MaxBases do
+	bases[i] = buildBase(i)
+end
+print("[卵どろぼう] マップ作成OK")
+
+local function insideBase(base, pos)
+	local p = base.cf:PointToObjectSpace(pos)
+	return math.abs(p.X) < HALF and math.abs(p.Z) < HALF and p.Y > -5 and p.Y < 30
+end
+
+local function slotTopCF(base, i)
+	local ped = base.slotParts[i]
+	return ped.CFrame * CFrame.new(0, ped.Size.Y / 2, 0)
+end
+
+function refreshSlot(base, i)
+	local ped = base.slotParts[i]
+	local st = base.owner and states[base.owner]
+	local unlocked = st ~= nil and i <= st.slots
+	ped.Transparency = unlocked and 0 or 0.75
+	ped.Color = unlocked and base.color:Lerp(WHITE, 0.4) or Color3.fromRGB(120, 120, 120)
+
+	if base.slotModels[i] then
+		base.slotModels[i]:Destroy()
+		base.slotModels[i] = nil
+	end
+	local item = st and st.items[i]
+	if item then
+		local model = buildItem(item)
+		placeItem(model, item, slotTopCF(base, i))
+		model.Parent = base.model
+		base.slotModels[i] = model
+	end
+	local prompt = ped.StealPrompt
+	prompt.Enabled = item ~= nil and not base.busy[i]
+	prompt.ObjectText = item and (itemInfo(item)) or ""
+	prompt:SetAttribute("ItemKind", item and item.k or "")
+end
+
+local function refreshBase(base)
+	for i = 1, Config.MaxSlots do
+		refreshSlot(base, i)
+	end
+	base.signLabel.Text = base.owner and (base.owner.DisplayName .. " のベース") or "空きベース"
+	local ownerId = base.owner and base.owner.UserId or 0
+	for _, ped in ipairs(base.slotParts) do
+		ped.StealPrompt:SetAttribute("OwnerUserId", ownerId)
+	end
+end
+
+--------------------------------------------------------------------------
+-- 卵を開ける（孵化）
+--------------------------------------------------------------------------
+function hatchSlot(base, slot, player)
+	local st = states[player]
+	local item = st.items[slot]
+	local model = base.slotModels[slot]
+	if not model then
+		return
+	end
+	base.busy[slot] = true
+	base.slotParts[slot].StealPrompt.Enabled = false
+	local rar = Config.Rarities[item.r]
+
+	-- ぶるぶる揺れる
+	local origin = model:GetPivot()
+	for i = 1, 10 do
+		if not model.Parent then
+			break
+		end
+		local a = math.rad((i % 2 == 0 and 1 or -1) * (6 + i * 1.5))
+		model:PivotTo(origin * CFrame.Angles(0, 0, a))
+		task.wait(0.07)
+	end
+	-- 途中でプレイヤーが抜けたら中止
+	if base.owner ~= player or st.items[slot] ~= item then
+		base.busy[slot] = nil
+		return
+	end
+	model:PivotTo(origin)
+
+	-- 光ってから割れる
+	for _, p in ipairs(model:GetDescendants()) do
+		if p:IsA("BasePart") then
+			p.Material = NEON
+			p.Color = WHITE
+		end
+	end
+	task.wait(0.15)
+	local center = origin.Position
+	local shellColor = rar.Palettes[math.floor((item.s - 1) / #EGG_PATTERNS) % #rar.Palettes + 1].Main
+	model:Destroy()
+	base.slotModels[slot] = nil
+
+	-- 殻のかけら
+	for _ = 1, 8 do
+		local shell = makePart({
+			Size = Vector3.new(0.6, 0.15, 0.5),
+			CFrame = CFrame.new(center) * CFrame.Angles(math.random() * 6, math.random() * 6, 0),
+			Color = shellColor,
+			Anchored = false,
+			Parent = workspace,
+		})
+		shell.AssemblyLinearVelocity = Vector3.new(math.random(-12, 12), math.random(15, 25), math.random(-12, 12))
+		Debris:AddItem(shell, 2)
+	end
+	-- キラキラ
+	local burst = makePart({ Size = Vector3.new(1, 1, 1), Position = center, Transparency = 1, CanCollide = false, Parent = workspace })
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Color = ColorSequence.new(rar.Color)
+	emitter.LightEmission = 1
+	emitter.Speed = NumberRange.new(8, 16)
+	emitter.SpreadAngle = Vector2.new(180, 180)
+	emitter.Lifetime = NumberRange.new(0.6, 1.2)
+	emitter.Size = NumberSequence.new(0.6, 0)
+	emitter.Rate = 0
+	emitter.Parent = burst
+	emitter:Emit(40)
+	Debris:AddItem(burst, 2)
+
+	-- 生き物の誕生
+	local speciesIndex = weightedPick(Config.Species[item.r])
+	local pet = { k = "pet", r = item.r, s = speciesIndex }
+	st.items[slot] = pet
+	base.busy[slot] = nil
+	refreshSlot(base, slot)
+
+	-- ポンッと大きくなる
+	local petModel = base.slotModels[slot]
+	if petModel then
+		local target = petModel:GetScale()
+		for _, f in ipairs({ 0.2, 0.5, 0.85, 1.15, 1 }) do
+			if petModel.Parent then
+				petModel:ScaleTo(target * f)
+			end
+			task.wait(0.05)
+		end
+	end
+	local name, income = itemInfo(pet)
+	notify(player, rar.Name .. "の卵から " .. name .. " が生まれた！ +" .. formatNumber(income) .. "/秒")
+end
+
+--------------------------------------------------------------------------
+-- 卵畑 / 落ちているアイテム
+--------------------------------------------------------------------------
+local function groundBelow(pos)
+	local params = RaycastParams.new()
+	local exclude = { fieldFolder }
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p.Character then
+			table.insert(exclude, p.Character)
+		end
+	end
+	params.FilterDescendantsInstances = exclude
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local hit = workspace:Raycast(pos + Vector3.new(0, 3, 0), Vector3.new(0, -60, 0), params)
+	return hit and hit.Position or nil
+end
+
+local function spawnFieldItem(item, groundPos)
+	if not groundPos then
+		local a = math.random() * math.pi * 2
+		local d = math.sqrt(math.random()) * Config.FieldRadius
+		groundPos = Vector3.new(math.cos(a) * d, 1, math.sin(a) * d)
+	end
+	local model, root = buildItem(item)
+	placeItem(model, item, CFrame.new(groundPos) * CFrame.Angles(0, math.random() * math.pi * 2, 0))
+
+	local name = itemInfo(item)
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "拾う"
+	prompt.ObjectText = name
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 10
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = root
+	prompt.Triggered:Connect(function(player)
+		local st = states[player]
+		if not model.Parent or not st then
+			return
+		end
+		if st.carrying then
+			notify(player, "1個しか持てない！")
+			return
+		end
+		model:Destroy()
+		startCarry(player, item, nil)
+		notify(player, name .. "をゲット！自分のベースへ運ぼう")
+	end)
+	model.Parent = fieldFolder
+end
+
+task.spawn(function()
+	while true do
+		if #fieldFolder:GetChildren() < Config.FieldEggCount then
+			local r = weightedPick(Config.Rarities)
+			spawnFieldItem({ k = "egg", r = r, s = math.random(1, eggStyleCount(r)) })
+		end
+		task.wait(Config.EggSpawnInterval)
+	end
+end)
+
+--------------------------------------------------------------------------
+-- 運ぶ
+--------------------------------------------------------------------------
+local function getHumanoid(player)
+	local char = player.Character
+	return char and char:FindFirstChildOfClass("Humanoid")
+end
+
+local function getRoot(player)
+	local char = player.Character
+	return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+local function updateSpeed(player)
+	local st = states[player]
+	local hum = getHumanoid(player)
+	if not st or not hum then
+		return
+	end
+	if now() < st.stunnedUntil then
+		hum.WalkSpeed = 0
+		return
+	end
+	local speed = Config.BaseWalkSpeed + st.speedLevel * Config.SpeedPerLevel
+	if st.carrying then
+		speed *= Config.CarrySpeedMultiplier
+	end
+	hum.WalkSpeed = speed
+end
+
+function startCarry(player, item, from)
+	local st = states[player]
+	st.carrying = { item = item, from = from }
+	local char = player.Character
+	local head = char and char:FindFirstChild("Head")
+	if head then
+		local model, root = buildItem(item)
+		if item.k == "pet" then
+			model:ScaleTo(model:GetScale() * 0.7)
+		end
+		placeItem(model, item, head.CFrame * CFrame.new(0, head.Size.Y / 2 + 0.1, 0))
+		for _, p in ipairs(model:GetDescendants()) do
+			if p:IsA("BasePart") then
+				p.Massless = true
+				p.CanCollide = false
+				p.CanQuery = false
+				p.CanTouch = false
+				if p ~= root then
+					local w = Instance.new("WeldConstraint")
+					w.Part0 = root
+					w.Part1 = p
+					w.Parent = p
+				end
+			end
+		end
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = head
+		weld.Part1 = root
+		weld.Parent = root
+		model.Parent = char
+		for _, p in ipairs(model:GetDescendants()) do
+			if p:IsA("BasePart") then
+				p.Anchored = false
+			end
+		end
+		st.carryModel = model
+	end
+	player:SetAttribute("Carrying", item.k)
+	updateSpeed(player)
+end
+
+local function stopCarry(player)
+	local st = states[player]
+	if st.carryModel then
+		st.carryModel:Destroy()
+		st.carryModel = nil
+	end
+	st.carrying = nil
+	player:SetAttribute("Carrying", nil)
+	updateSpeed(player)
+end
+
+-- 押された / 倒れた / 退出したときに落とす
+-- byChoice = true のときは自分で落とした（その場の地面に置く）
+local function dropCarry(player, byChoice)
+	local st = states[player]
+	local c = st and st.carrying
+	if not c then
+		return
+	end
+	local root = getRoot(player)
+	local pos = root and root.Position
+	if byChoice and root then
+		pos = (root.CFrame * CFrame.new(0, 0, -3)).Position -- 少し前に置く
+	end
+	stopCarry(player)
+
+	-- 押されて落としたときは、盗まれたものは持ち主の台に戻る
+	local from = c.from
+	if not byChoice and from and from.owner.Parent then
+		local ownerState = states[from.owner]
+		if ownerState and ownerState.items[from.slot] == nil and from.slot <= ownerState.slots then
+			ownerState.items[from.slot] = c.item
+			refreshSlot(ownerState.base, from.slot)
+			notify(from.owner, itemInfo(c.item) .. "を取り返した！")
+			return
+		end
+	end
+	spawnFieldItem(c.item, pos and groundBelow(pos) or nil)
+end
+
+--------------------------------------------------------------------------
+-- プレイヤー参加 / 退出
+--------------------------------------------------------------------------
+local function onCharacterAdded(player, char)
+	local st = states[player]
+	if not st then
+		return
+	end
+	st.carrying = nil
+	st.carryModel = nil
+	player:SetAttribute("Carrying", nil)
+	local hum = char:WaitForChild("Humanoid")
+	char:WaitForChild("HumanoidRootPart")
+	task.wait(0.1)
+	char:PivotTo(st.base.cf * CFrame.new(0, 4, -HALF + 6))
+	updateSpeed(player)
+	hum.Died:Connect(function()
+		dropCarry(player)
+	end)
+end
+
+local function onPlayerAdded(player)
+	local base = nil
+	for _, b in ipairs(bases) do
+		if not b.owner then
+			base = b
+			break
+		end
+	end
+	if not base then
+		notify(player, "ベースが満員です")
+		return
+	end
+
+	local data = loadData(player) or {}
+	local st = {
+		base = base,
+		cash = tonumber(data.cash) or Config.StartCash,
+		slots = math.clamp(tonumber(data.slots) or Config.StartSlots, Config.StartSlots, Config.MaxSlots),
+		speedLevel = math.clamp(tonumber(data.speedLevel) or 0, 0, Config.MaxSpeedLevel),
+		items = {},
+		carrying = nil,
+		carryModel = nil,
+		lastShove = 0,
+		stunnedUntil = 0,
+		lockCooldownEnd = 0,
+	}
+	if type(data.eggs) == "table" then
+		for i = 1, st.slots do
+			st.items[i] = validItem(data.eggs[i])
+		end
+	end
+
+	local leaderstats = Instance.new("Folder")
+	leaderstats.Name = "leaderstats"
+	leaderstats.Parent = player
+	local cashValue = Instance.new("IntValue")
+	cashValue.Name = "お金"
+	cashValue.Value = st.cash
+	cashValue.Parent = leaderstats
+	st.cashValue = cashValue
+
+	player:SetAttribute("Slots", st.slots)
+	player:SetAttribute("SpeedLevel", st.speedLevel)
+	player:SetAttribute("LockedUntil", 0)
+	player:SetAttribute("LockCooldownEnd", 0)
+
+	states[player] = st
+	base.owner = player
+	refreshBase(base)
+
+	player.CharacterAdded:Connect(function(char)
+		onCharacterAdded(player, char)
+	end)
+	player.CharacterRemoving:Connect(function()
+		dropCarry(player)
+	end)
+	if player.Character then
+		task.spawn(onCharacterAdded, player, player.Character)
+	end
+	notify(player, "中央の卵畑から卵を持ち帰ろう！")
+end
+
+Players.PlayerAdded:Connect(onPlayerAdded)
+for _, p in ipairs(Players:GetPlayers()) do
+	task.spawn(onPlayerAdded, p)
+end
+
+Players.PlayerRemoving:Connect(function(player)
+	local st = states[player]
+	if not st then
+		return
+	end
+	dropCarry(player)
+	saveData(player, st)
+	states[player] = nil
+	st.base.owner = nil
+	st.base.lockedUntil = 0
+	st.base.busy = {}
+	refreshBase(st.base)
+end)
+
+game:BindToClose(function()
+	for player, st in pairs(states) do
+		saveData(player, st)
+	end
+end)
+
+--------------------------------------------------------------------------
+-- ボタン操作（アップグレード / ロック / 押す）
+--------------------------------------------------------------------------
+BuyUpgrade.OnServerEvent:Connect(function(player, kind)
+	local st = states[player]
+	if not st then
+		return
+	end
+	if kind == "Slot" then
+		if st.slots >= Config.MaxSlots then
+			return
+		end
+		local cost = Config.SlotCost(st.slots)
+		if st.cash < cost then
+			notify(player, "お金が足りない！")
+			return
+		end
+		st.cash -= cost
+		st.slots += 1
+		player:SetAttribute("Slots", st.slots)
+		refreshSlot(st.base, st.slots)
+		notify(player, "台が増えた！")
+	elseif kind == "Speed" then
+		if st.speedLevel >= Config.MaxSpeedLevel then
+			return
+		end
+		local cost = Config.SpeedCost(st.speedLevel)
+		if st.cash < cost then
+			notify(player, "お金が足りない！")
+			return
+		end
+		st.cash -= cost
+		st.speedLevel += 1
+		player:SetAttribute("SpeedLevel", st.speedLevel)
+		updateSpeed(player)
+		notify(player, "足が速くなった！")
+	end
+	st.cashValue.Value = st.cash
+end)
+
+LockBase.OnServerEvent:Connect(function(player)
+	local st = states[player]
+	if not st then
+		return
+	end
+	local t = now()
+	if t < st.lockCooldownEnd then
+		return
+	end
+	st.base.lockedUntil = t + Config.LockDuration
+	st.lockCooldownEnd = t + Config.LockCooldown
+	player:SetAttribute("LockedUntil", st.base.lockedUntil)
+	player:SetAttribute("LockCooldownEnd", st.lockCooldownEnd)
+	notify(player, "ベースを " .. Config.LockDuration .. " 秒ロックした！")
+end)
+
+-- コード入力（コードはサーバーだけに置くので、プレイヤーからは見えない）
+-- 何回でも使える。卵は空いている台に置かれる。
+local CODES = {
+	["114514810"] = function(player, st)
+		local r = #Config.Rarities -- いちばん強いレア度（810）
+		local egg = { k = "egg", r = r, s = math.random(1, eggStyleCount(r)) }
+		for i = 1, st.slots do
+			if st.items[i] == nil and not st.base.busy[i] then
+				st.items[i] = egg
+				refreshSlot(st.base, i)
+				return "コード成功！" .. Config.Rarities[r].Name .. "の卵を台に置いたよ"
+			end
+		end
+		if not st.carrying then
+			startCarry(player, egg, nil)
+			return "コード成功！台がいっぱいなので、" .. Config.Rarities[r].Name .. "の卵を持たせたよ"
+		end
+		return "台がいっぱい！台を空けてからもう一度入力してね"
+	end,
+}
+
+RedeemCode.OnServerEvent:Connect(function(player, code)
+	local st = states[player]
+	if not st or type(code) ~= "string" then
+		return
+	end
+	local t = now()
+	if t - (st.lastCode or 0) < 1 then
+		return -- 連打防止
+	end
+	st.lastCode = t
+	local reward = CODES[string.gsub(code, "%s", "")]
+	if reward then
+		notify(player, reward(player, st))
+	else
+		notify(player, "そのコードは使えません")
+	end
+end)
+
+DropItem.OnServerEvent:Connect(function(player)
+	local st = states[player]
+	if st and st.carrying then
+		local name = itemInfo(st.carrying.item)
+		dropCarry(player, true)
+		notify(player, name .. "を落とした")
+	end
+end)
+
+Shove.OnServerEvent:Connect(function(player)
+	local st = states[player]
+	local root = getRoot(player)
+	if not st or not root then
+		return
+	end
+	local t = now()
+	if t - st.lastShove < Config.ShoveCooldown or t < st.stunnedUntil then
+		return
+	end
+	st.lastShove = t
+
+	local target, bestDist = nil, Config.ShoveRange
+	for _, other in ipairs(Players:GetPlayers()) do
+		local otherRoot = getRoot(other)
+		local otherHum = getHumanoid(other)
+		if other ~= player and otherRoot and otherHum and otherHum.Health > 0 and states[other] then
+			local d = (otherRoot.Position - root.Position).Magnitude
+			if d < bestDist then
+				target, bestDist = other, d
+			end
+		end
+	end
+	if not target then
+		return
+	end
+
+	local tst = states[target]
+	local hadItem = tst.carrying ~= nil
+	dropCarry(target)
+	tst.stunnedUntil = t + Config.StunTime
+	local hum = getHumanoid(target)
+	if hum then
+		hum.Sit = true
+	end
+	updateSpeed(target)
+	task.delay(Config.StunTime, function()
+		if target.Parent then
+			updateSpeed(target)
+		end
+	end)
+	notify(target, player.DisplayName .. " に押された！")
+	if hadItem then
+		notify(player, target.DisplayName .. " に落とさせた！")
+	end
+end)
+
+--------------------------------------------------------------------------
+-- メインループ
+--------------------------------------------------------------------------
+-- ベースに置く / ロック中の侵入者を外に出す（0.2秒ごと）
+task.spawn(function()
+	while true do
+		task.wait(0.2)
+		local t = now()
+		for player, st in pairs(states) do
+			local root = getRoot(player)
+			if st.carrying and root and insideBase(st.base, root.Position) then
+				local free = nil
+				for i = 1, st.slots do
+					if st.items[i] == nil and not st.base.busy[i] then
+						free = i
+						break
+					end
+				end
+				if free then
+					local item = st.carrying.item
+					stopCarry(player)
+					st.items[free] = item
+					refreshSlot(st.base, free)
+					if item.k == "egg" then
+						notify(player, "卵を置いた！台でEを長押しすると開けられるよ")
+					else
+						notify(player, itemInfo(item) .. "を置いた！")
+					end
+				elseif t - (st.fullWarned or 0) > 3 then
+					st.fullWarned = t
+					notify(player, "台がいっぱい！台を増やすか、生き物を売ろう")
+				end
+			end
+		end
+		for _, base in ipairs(bases) do
+			local locked = base.owner ~= nil and t < base.lockedUntil
+			base.barrier.Transparency = locked and 0.3 or 1
+			if locked then
+				for _, other in ipairs(Players:GetPlayers()) do
+					local root = getRoot(other)
+					if other ~= base.owner and root and insideBase(base, root.Position) then
+						other.Character:PivotTo(base.cf * CFrame.new(0, 4, -HALF - 10))
+						notify(other, "ロック中のベースには入れない！")
+					end
+				end
+			end
+		end
+	end
+end)
+
+-- 収入（1秒ごと）
+task.spawn(function()
+	while true do
+		task.wait(1)
+		for _, st in pairs(states) do
+			local income = 0
+			for i = 1, st.slots do
+				local item = st.items[i]
+				if item then
+					local _, inc = itemInfo(item)
+					income += inc
+				end
+			end
+			if income > 0 then
+				st.cash += income
+				st.cashValue.Value = st.cash
+			end
+		end
+	end
+end)
+
+-- 自動セーブ（60秒ごと）
+task.spawn(function()
+	while true do
+		task.wait(60)
+		for player, st in pairs(states) do
+			task.spawn(saveData, player, st)
+		end
+	end
+end)
