@@ -1457,7 +1457,7 @@ LockBase.OnServerEvent:Connect(function(player)
 end)
 
 -- コード入力（コードはサーバーだけに置くので、プレイヤーからは見えない）
--- 何回でも使える。卵は空いている台に置かれる。
+-- 何回でも使える。卵は空いている台に置かれる。ADMIN_ONLY_CODES に入れたコードは管理者だけ。
 local CODES = {
 	["114514810"] = function(player, st)
 		local r = #Config.Rarities -- いちばん強いレア度（810）
@@ -1477,6 +1477,27 @@ local CODES = {
 	end,
 }
 
+-- 管理者だけが使えるコード
+local ADMIN_ONLY_CODES = {
+	["114514810"] = true,
+}
+
+-- 管理者 = ゲームの持ち主（グループのゲームならグループのオーナー）＋ EggConfig.AdminUserIds の人
+local function isAdmin(player)
+	for _, id in ipairs(Config.AdminUserIds) do
+		if player.UserId == id then
+			return true
+		end
+	end
+	if game.CreatorType == Enum.CreatorType.User then
+		return player.UserId == game.CreatorId
+	end
+	local ok, rank = pcall(function()
+		return player:GetRankInGroup(game.CreatorId)
+	end)
+	return ok and rank == 255
+end
+
 RedeemCode.OnServerEvent:Connect(function(player, code)
 	local st = states[player]
 	if not st or type(code) ~= "string" then
@@ -1487,7 +1508,12 @@ RedeemCode.OnServerEvent:Connect(function(player, code)
 		return -- 連打防止
 	end
 	st.lastCode = t
-	local reward = CODES[string.gsub(code, "%s", "")]
+	local cleaned = string.gsub(code, "%s", "")
+	local reward = CODES[cleaned]
+	if reward and ADMIN_ONLY_CODES[cleaned] and not isAdmin(player) then
+		notify(player, "このコードは管理者しか使えません")
+		return
+	end
 	if reward then
 		notify(player, reward(player, st))
 	else

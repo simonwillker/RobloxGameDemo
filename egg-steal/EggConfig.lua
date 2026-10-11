@@ -40,6 +40,10 @@ Config.MinigunPrice = 100
 Config.MinigunFireInterval = 0.1   -- 連射の間隔（秒）
 Config.MinigunRange = 120          -- 弾が届く距離
 
+-- 管理者（ゲームの持ち主は自動で管理者）。ほかに管理者にしたい人のユーザーIDを入れる
+-- 例: Config.AdminUserIds = { 12345678, 87654321 }
+Config.AdminUserIds = {}
+
 -- 中央の卵畑
 Config.FieldRadius = 30
 Config.FieldEggCount = 12      -- 畑に同時に出る卵の数
