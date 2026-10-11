@@ -6,6 +6,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local MarketplaceService = game:GetService("MarketplaceService")
 
 local player = Players.LocalPlayer
 local Config = require(ReplicatedStorage:WaitForChild("EggConfig"))
@@ -112,7 +113,8 @@ shoveButton.Text = "押す [F]"
 local dropButton = makeButton(Color3.fromRGB(120, 120, 140))
 dropButton.Text = "落とす [G]"
 dropButton.Visible = false -- 何か持っているときだけ表示
-panel.Size = UDim2.fromOffset(200, 330)
+local minigunButton = makeButton(Color3.fromRGB(140, 60, 220))
+panel.Size = UDim2.fromOffset(200, 400)
 
 local notice = Instance.new("TextLabel")
 notice.AnchorPoint = Vector2.new(0.5, 0)
@@ -153,6 +155,56 @@ codeButton.Activated:Connect(sendCode)
 codeBox.FocusLost:Connect(function(enterPressed)
 	if enterPressed then
 		sendCode()
+	end
+end)
+
+minigunButton.Activated:Connect(function()
+	if player:GetAttribute("HasMinigun") then
+		return
+	end
+	if Config.MinigunGamePassId == 0 then
+		notice.Text = "ミニガンは準備中です（ゲームパス番号が未設定）"
+		notice.TextTransparency = 0
+		notice.BackgroundTransparency = 0.3
+		task.delay(2.5, function()
+			notice.TextTransparency = 1
+			notice.BackgroundTransparency = 1
+		end)
+		return
+	end
+	MarketplaceService:PromptGamePassPurchase(player, Config.MinigunGamePassId)
+end)
+
+-- ミニガン：押している間、マウスの方向へ連射
+local firing = false
+local mouse = player:GetMouse()
+local function watchTool(tool)
+	if tool:IsA("Tool") and tool.Name == "ミニガン" then
+		tool.Activated:Connect(function()
+			firing = true
+		end)
+		tool.Deactivated:Connect(function()
+			firing = false
+		end)
+		tool.Unequipped:Connect(function()
+			firing = false
+		end)
+	end
+end
+local function watchCharacter(char)
+	firing = false
+	char.ChildAdded:Connect(watchTool)
+end
+if player.Character then
+	watchCharacter(player.Character)
+end
+player.CharacterAdded:Connect(watchCharacter)
+task.spawn(function()
+	while true do
+		if firing then
+			remotes.MinigunFire:FireServer(mouse.Hit.Position)
+		end
+		task.wait(Config.MinigunFireInterval)
 	end
 end)
 
@@ -247,6 +299,11 @@ while true do
 	end
 
 	dropButton.Visible = player:GetAttribute("Carrying") ~= nil
+	if player:GetAttribute("HasMinigun") then
+		minigunButton.Text = "ミニガン 所持中"
+	else
+		minigunButton.Text = "ミニガンを買う\nR$" .. Config.MinigunPrice
+	end
 
 	task.wait(0.2)
 end

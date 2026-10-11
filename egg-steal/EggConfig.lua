@@ -31,6 +31,15 @@ Config.ShoveRange = 8              -- 「押す」が届く距離
 Config.ShoveCooldown = 1.5
 Config.StunTime = 1.2              -- 押された人が動けない時間
 
+-- 武器
+Config.BatRange = 7                -- バットが届く距離
+Config.BatCooldown = 0.8           -- バットを振れる間隔（秒）
+-- ミニガン（ゲームパス）: create.roblox.com で 100 Robux のゲームパスを作り、その番号をここに入れる
+Config.MinigunGamePassId = 0       -- 0 のままだと購入ボタンは「準備中」になる
+Config.MinigunPrice = 100
+Config.MinigunFireInterval = 0.1   -- 連射の間隔（秒）
+Config.MinigunRange = 120          -- 弾が届く距離
+
 -- 中央の卵畑
 Config.FieldRadius = 30
 Config.FieldEggCount = 12      -- 畑に同時に出る卵の数
