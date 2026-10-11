@@ -1215,6 +1215,23 @@ local CODES = {
 		end
 		return "台がいっぱい！台を空けてからもう一度入力してね"
 	end,
+	-- 飛べるようになる（この回のプレイ中ずっと）
+	["うんこです"] = function(player, st)
+		if player:GetAttribute("CanFly") then
+			return "もう飛べるよ！ H キー（または「飛ぶ」ボタン）"
+		end
+		player:SetAttribute("CanFly", true)
+		return "コード成功！飛べるようになった！ H キー（または「飛ぶ」ボタン）で ON/OFF"
+	end,
+	-- 毎秒の収入が2倍（この回のプレイ中ずっと。重ねがけはできない）
+	["インムキング"] = function(player, st)
+		if st.incomeMultiplier == 2 then
+			return "もう収入2倍になっているよ"
+		end
+		st.incomeMultiplier = 2
+		player:SetAttribute("IncomeBoost", 2)
+		return "コード成功！毎秒の収入が2倍になった！"
+	end,
 }
 
 -- 管理者だけが使えるコード
@@ -1248,7 +1265,7 @@ RedeemCode.OnServerEvent:Connect(function(player, code)
 		return -- 連打防止
 	end
 	st.lastCode = t
-	local cleaned = string.gsub(code, "%s", "")
+	local cleaned = string.gsub(string.gsub(code, "%s", ""), "　", "")
 	local reward = CODES[cleaned]
 	if reward and ADMIN_ONLY_CODES[cleaned] and not isAdmin(player) then
 		notify(player, "このコードは管理者しか使えません")
@@ -1380,6 +1397,7 @@ task.spawn(function()
 					income += inc
 				end
 			end
+			income *= st.incomeMultiplier or 1
 			if income > 0 then
 				st.cash += income
 				st.cashValue.Value = st.cash

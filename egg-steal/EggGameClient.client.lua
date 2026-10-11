@@ -6,6 +6,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local Config = require(ReplicatedStorage:WaitForChild("EggConfig"))
@@ -112,7 +113,10 @@ shoveButton.Text = "押す [F]"
 local dropButton = makeButton(Color3.fromRGB(120, 120, 140))
 dropButton.Text = "落とす [G]"
 dropButton.Visible = false -- 何か持っているときだけ表示
-panel.Size = UDim2.fromOffset(200, 330)
+local flyButton = makeButton(Color3.fromRGB(80, 160, 230))
+flyButton.Text = "飛ぶ [H]"
+flyButton.Visible = false -- コード「うんこです」を使うと表示
+panel.Size = UDim2.fromOffset(200, 400)
 
 local notice = Instance.new("TextLabel")
 notice.AnchorPoint = Vector2.new(0.5, 0)
@@ -159,6 +163,105 @@ end)
 dropButton.Activated:Connect(function()
 	remotes.DropItem:FireServer()
 end)
+
+--------------------------------------------------------------------------
+-- 飛ぶ（コード「うんこです」）
+-- 移動キー/スティックでカメラの向きへ飛ぶ。スペースで上昇、Q で下降。
+--------------------------------------------------------------------------
+local FLY_SPEED = 50
+local flying = false
+local flyVel, flyGyro
+local controls = nil
+task.spawn(function()
+	local ok, playerModule = pcall(function()
+		return require(player:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule"))
+	end)
+	if ok then
+		controls = playerModule:GetControls()
+	end
+end)
+
+local function stopFly()
+	flying = false
+	if flyVel then
+		flyVel:Destroy()
+		flyVel = nil
+	end
+	if flyGyro then
+		flyGyro:Destroy()
+		flyGyro = nil
+	end
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum.PlatformStand = false
+	end
+	flyButton.Text = "飛ぶ [H]"
+end
+
+local function startFly()
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not root or not hum or hum.Health <= 0 then
+		return
+	end
+	flying = true
+	flyVel = Instance.new("BodyVelocity")
+	flyVel.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+	flyVel.Velocity = Vector3.zero
+	flyVel.Parent = root
+	flyGyro = Instance.new("BodyGyro")
+	flyGyro.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
+	flyGyro.P = 1e4
+	flyGyro.CFrame = root.CFrame
+	flyGyro.Parent = root
+	hum.PlatformStand = true
+	flyButton.Text = "飛ぶのをやめる [H]"
+end
+
+local function toggleFly()
+	if not player:GetAttribute("CanFly") then
+		return
+	end
+	if flying then
+		stopFly()
+	else
+		startFly()
+	end
+end
+flyButton.Activated:Connect(toggleFly)
+player.CharacterAdded:Connect(function()
+	flying = false
+	flyVel, flyGyro = nil, nil
+	flyButton.Text = "飛ぶ [H]"
+end)
+
+RunService.RenderStepped:Connect(function()
+	if not flying or not flyVel or not flyVel.Parent then
+		if flying then
+			stopFly()
+		end
+		return
+	end
+	local cam = workspace.CurrentCamera
+	local move = controls and controls:GetMoveVector() or Vector3.zero
+	local dir = cam.CFrame:VectorToWorldSpace(move)
+	if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+		dir += Vector3.new(0, 1, 0)
+	elseif UserInputService:IsKeyDown(Enum.KeyCode.Q) then
+		dir -= Vector3.new(0, 1, 0)
+	end
+	if dir.Magnitude > 1 then
+		dir = dir.Unit
+	end
+	flyVel.Velocity = dir * FLY_SPEED
+	local look = cam.CFrame.LookVector * Vector3.new(1, 0, 1)
+	if look.Magnitude > 0.01 then
+		local pos = flyGyro.Parent.Position
+		flyGyro.CFrame = CFrame.lookAt(pos, pos + look)
+	end
+end)
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then
 		return
@@ -167,6 +270,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		remotes.Shove:FireServer()
 	elseif input.KeyCode == Enum.KeyCode.G then
 		remotes.DropItem:FireServer()
+	elseif input.KeyCode == Enum.KeyCode.H then
+		toggleFly()
 	end
 end)
 
@@ -247,6 +352,7 @@ while true do
 	end
 
 	dropButton.Visible = player:GetAttribute("Carrying") ~= nil
+	flyButton.Visible = player:GetAttribute("CanFly") == true
 
 	task.wait(0.2)
 end
