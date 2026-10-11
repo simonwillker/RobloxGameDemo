@@ -181,8 +181,10 @@ task.spawn(function()
 	local ok, playerModule = pcall(function()
 		return require(player:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule"))
 	end)
-	if ok then
+	if ok and playerModule then
 		controls = playerModule:GetControls()
+	else
+		warn("[卵どろぼう] PlayerModule が読めません。キーボードと歩く向きで飛びます")
 	end
 end)
 
@@ -297,12 +299,44 @@ RunService.RenderStepped:Connect(function(dt)
 		return
 	end
 	local cam = workspace.CurrentCamera
-	local move = controls and controls:GetMoveVector() or Vector3.zero
+	-- 移動の入力を読む（スティック → キーボード → キャラの歩く向き の順で、どれかが取れればOK）
+	local move = Vector3.zero
+	if controls then
+		local ok, v = pcall(function()
+			return controls:GetMoveVector()
+		end)
+		if ok and typeof(v) == "Vector3" then
+			move = v
+		end
+	end
+	if move.Magnitude < 0.05 and not UserInputService:GetFocusedTextBox() then
+		local kx, kz = 0, 0
+		if UserInputService:IsKeyDown(Enum.KeyCode.W) or UserInputService:IsKeyDown(Enum.KeyCode.Up) then
+			kz -= 1
+		end
+		if UserInputService:IsKeyDown(Enum.KeyCode.S) or UserInputService:IsKeyDown(Enum.KeyCode.Down) then
+			kz += 1
+		end
+		if UserInputService:IsKeyDown(Enum.KeyCode.A) or UserInputService:IsKeyDown(Enum.KeyCode.Left) then
+			kx -= 1
+		end
+		if UserInputService:IsKeyDown(Enum.KeyCode.D) or UserInputService:IsKeyDown(Enum.KeyCode.Right) then
+			kx += 1
+		end
+		move = Vector3.new(kx, 0, kz)
+	end
+	local worldMove = nil
+	if move.Magnitude < 0.05 then
+		local hum = flyVel.Parent.Parent and flyVel.Parent.Parent:FindFirstChildOfClass("Humanoid")
+		if hum and hum.MoveDirection.Magnitude > 0.05 then
+			worldMove = hum.MoveDirection * Vector3.new(1, 0, 1)
+		end
+	end
 	-- カメラの向きを水平にして使う（歩くときと同じ。上下を向いても高さは変わらない）
 	local forward = cam.CFrame.LookVector * Vector3.new(1, 0, 1)
 	forward = forward.Magnitude > 0.01 and forward.Unit or Vector3.new(0, 0, -1)
 	local right = Vector3.new(-forward.Z, 0, forward.X)
-	local dir = right * move.X - forward * move.Z
+	local dir = worldMove or (right * move.X - forward * move.Z)
 	if dir.Magnitude > 1 then
 		dir = dir.Unit
 	end
@@ -317,6 +351,8 @@ RunService.RenderStepped:Connect(function(dt)
 	local target = dir * FLY_SPEED + Vector3.new(0, up * FLY_SPEED * 0.5, 0)
 	-- だんだん加速・減速して、なめらかに動く
 	flyVel.Velocity = flyVel.Velocity:Lerp(target, math.min(1, dt * FLY_SMOOTH))
+	-- 体に直接も速さを入れて、確実に動かす
+	flyVel.Parent.AssemblyLinearVelocity = flyVel.Velocity
 
 	-- 体はカメラの前を向いたまま（後ろに進んでも振り向かない）、
 	-- 進む方向へ体を傾ける：前へ進むと前のめり、後ろは反り返る、横は横に傾く、
