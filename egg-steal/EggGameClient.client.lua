@@ -164,7 +164,8 @@ end)
 --------------------------------------------------------------------------
 -- 飛ぶ（コード「うんこです」・管理者専用）
 -- ジャンプを2回すばやく押すと飛ぶ / もう一度2回押すと着地。
--- 移動キー/スティックでカメラの向きへ飛ぶ。スペースで上昇、Q で下降。
+-- 地面を歩くのと同じ操作で水平に飛ぶ（高さは変わらない）。
+-- 上昇：スペース / 「↑」ボタン、下降：Q か Ctrl / 「↓」ボタン。
 --------------------------------------------------------------------------
 local FLY_SPEED = 50
 local flying = false
@@ -178,6 +179,42 @@ task.spawn(function()
 		controls = playerModule:GetControls()
 	end
 end)
+
+-- 上昇・下降ボタン（飛んでいる間だけ表示。スマホ用）
+local vertical = 0 -- 1 = 上昇, -1 = 下降
+local flyPad = Instance.new("Frame")
+flyPad.AnchorPoint = Vector2.new(1, 1)
+flyPad.Position = UDim2.new(1, -230, 1, -20)
+flyPad.Size = UDim2.fromOffset(70, 150)
+flyPad.BackgroundTransparency = 1
+flyPad.Visible = false
+flyPad.Parent = gui
+local function padButton(text, y, value)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.fromOffset(70, 70)
+	b.Position = UDim2.fromOffset(0, y)
+	b.BackgroundColor3 = Color3.fromRGB(80, 160, 230)
+	b.BackgroundTransparency = 0.2
+	b.Font = Enum.Font.GothamBold
+	b.TextScaled = true
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Text = text
+	b.Parent = flyPad
+	Instance.new("UICorner", b).CornerRadius = UDim.new(1, 0)
+	b.MouseButton1Down:Connect(function()
+		vertical = value
+	end)
+	b.MouseButton1Up:Connect(function()
+		vertical = 0
+	end)
+	b.MouseLeave:Connect(function()
+		if vertical == value then
+			vertical = 0
+		end
+	end)
+end
+padButton("↑", 0, 1)
+padButton("↓", 80, -1)
 
 local function stopFly()
 	flying = false
@@ -194,6 +231,8 @@ local function stopFly()
 	if hum then
 		hum.PlatformStand = false
 	end
+	flyPad.Visible = false
+	vertical = 0
 end
 
 local function startFly()
@@ -214,6 +253,7 @@ local function startFly()
 	flyGyro.CFrame = root.CFrame
 	flyGyro.Parent = root
 	hum.PlatformStand = true
+	flyPad.Visible = true
 end
 
 local function toggleFly()
@@ -229,6 +269,8 @@ end
 player.CharacterAdded:Connect(function()
 	flying = false
 	flyVel, flyGyro = nil, nil
+	flyPad.Visible = false
+	vertical = 0
 end)
 
 -- ジャンプの2回押しを見分ける（押しっぱなしは1回と数える。スマホのジャンプボタンでもOK）
@@ -258,20 +300,27 @@ RunService.RenderStepped:Connect(function()
 	end
 	local cam = workspace.CurrentCamera
 	local move = controls and controls:GetMoveVector() or Vector3.zero
-	local dir = cam.CFrame:VectorToWorldSpace(move)
+	-- カメラの向きを水平にして使う（上下を向いても高さは変わらない）
+	local forward = cam.CFrame.LookVector * Vector3.new(1, 0, 1)
+	forward = forward.Magnitude > 0.01 and forward.Unit or Vector3.new(0, 0, -1)
+	local right = Vector3.new(-forward.Z, 0, forward.X)
+	local dir = right * move.X - forward * move.Z
+
+	local up = vertical
 	if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-		dir += Vector3.new(0, 1, 0)
-	elseif UserInputService:IsKeyDown(Enum.KeyCode.Q) then
-		dir -= Vector3.new(0, 1, 0)
+		up = 1
+	elseif UserInputService:IsKeyDown(Enum.KeyCode.Q) or UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+		up = -1
 	end
 	if dir.Magnitude > 1 then
 		dir = dir.Unit
 	end
-	flyVel.Velocity = dir * FLY_SPEED
-	local look = cam.CFrame.LookVector * Vector3.new(1, 0, 1)
-	if look.Magnitude > 0.01 then
-		local pos = flyGyro.Parent.Position
-		flyGyro.CFrame = CFrame.lookAt(pos, pos + look)
+	flyVel.Velocity = dir * FLY_SPEED + Vector3.new(0, up * FLY_SPEED * 0.6, 0)
+
+	-- 進む方向を向く（止まっているときはそのまま）
+	local pos = flyGyro.Parent.Position
+	if dir.Magnitude > 0.05 then
+		flyGyro.CFrame = CFrame.lookAt(pos, pos + dir)
 	end
 end)
 UserInputService.InputBegan:Connect(function(input, processed)
