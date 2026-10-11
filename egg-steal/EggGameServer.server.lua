@@ -6,7 +6,6 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local DataStoreService = game:GetService("DataStoreService")
 local Debris = game:GetService("Debris")
-local MarketplaceService = game:GetService("MarketplaceService")
 
 print("[卵どろぼう] サーバースクリプト起動")
 local Config = require(ReplicatedStorage:WaitForChild("EggConfig"))
@@ -39,7 +38,6 @@ local Shove = makeRemote("Shove")
 local Notify = makeRemote("Notify")
 local DropItem = makeRemote("DropItem")
 local RedeemCode = makeRemote("RedeemCode")
-local MinigunFire = makeRemote("MinigunFire")
 
 local function notify(player, text)
 	if player and player.Parent then
@@ -1035,261 +1033,6 @@ local function dropCarry(player, byChoice)
 end
 
 --------------------------------------------------------------------------
--- 武器（バット / ミニガン）
---------------------------------------------------------------------------
--- 相手を転ばせる。steal = true なら持っているものを奪う
-local function hitPlayer(attacker, target, steal)
-	local ast, tst = states[attacker], states[target]
-	if not ast or not tst then
-		return
-	end
-	local t = now()
-	if t < (tst.hitImmuneUntil or 0) then
-		return
-	end
-	tst.hitImmuneUntil = t + Config.StunTime + 0.3
-
-	local c = tst.carrying
-	if c and steal and not ast.carrying then
-		stopCarry(target)
-		startCarry(attacker, c.item, c.from)
-		notify(attacker, target.DisplayName .. " から " .. itemInfo(c.item) .. "を奪った！")
-		notify(target, attacker.DisplayName .. " に " .. itemInfo(c.item) .. "を奪われた！")
-	elseif c then
-		dropCarry(target)
-		notify(target, attacker.DisplayName .. " にやられて落とした！")
-	end
-
-	tst.stunnedUntil = t + Config.StunTime
-	local hum = getHumanoid(target)
-	if hum then
-		hum.Sit = true
-	end
-	updateSpeed(target)
-	task.delay(Config.StunTime, function()
-		if target.Parent then
-			updateSpeed(target)
-		end
-	end)
-end
-
-local function makeBat()
-	local tool = Instance.new("Tool")
-	tool.Name = "バット"
-	tool.ToolTip = "クリックで振る：当てると相手の卵を奪う"
-	tool.CanBeDropped = false
-	tool.GripPos = Vector3.new(0, 0, -1.6)
-	tool.GripForward = Vector3.new(-1, 0, 0)
-	tool.GripRight = Vector3.new(0, 1, 0)
-	tool.GripUp = Vector3.new(0, 0, 1)
-	local handle = makePart({
-		Name = "Handle",
-		Size = Vector3.new(0.45, 0.45, 4.2),
-		Color = Color3.fromRGB(170, 120, 70),
-		Material = Enum.Material.Wood,
-		Anchored = false,
-		CanCollide = false,
-		Parent = tool,
-	})
-	local tip = makePart({
-		Size = Vector3.new(0.7, 0.7, 1.6),
-		CFrame = handle.CFrame * CFrame.new(0, 0, -1.4),
-		Color = Color3.fromRGB(150, 100, 55),
-		Material = Enum.Material.Wood,
-		Anchored = false,
-		CanCollide = false,
-		Massless = true,
-		Parent = tool,
-	})
-	local w = Instance.new("WeldConstraint")
-	w.Part0 = handle
-	w.Part1 = tip
-	w.Parent = tip
-
-	local normalGrip = tool.Grip
-	local lastSwing = 0
-	tool.Activated:Connect(function()
-		local char = tool.Parent
-		local player = char and Players:GetPlayerFromCharacter(char)
-		local root = char and char:FindFirstChild("HumanoidRootPart")
-		local t = now()
-		if not player or not root or t - lastSwing < Config.BatCooldown then
-			return
-		end
-		lastSwing = t
-		-- 振る
-		tool.Grip = normalGrip * CFrame.Angles(math.rad(-90), 0, 0)
-		task.delay(0.2, function()
-			tool.Grip = normalGrip
-		end)
-		-- 前にいるいちばん近い相手に当たる
-		local target, best = nil, Config.BatRange
-		for _, other in ipairs(Players:GetPlayers()) do
-			local oroot = getRoot(other)
-			local ohum = getHumanoid(other)
-			if other ~= player and oroot and ohum and ohum.Health > 0 then
-				local offset = oroot.Position - root.Position
-				local d = offset.Magnitude
-				if d < best and (d < 2 or root.CFrame.LookVector:Dot(offset.Unit) > 0.3) then
-					target, best = other, d
-				end
-			end
-		end
-		if target then
-			hitPlayer(player, target, true)
-		end
-	end)
-	return tool
-end
-
-local function makeMinigun()
-	local tool = Instance.new("Tool")
-	tool.Name = "ミニガン"
-	tool.ToolTip = "長押しで連射：当たった相手は卵を落とす"
-	tool.CanBeDropped = false
-	local dark = Color3.fromRGB(40, 40, 45)
-	local handle = makePart({
-		Name = "Handle",
-		Size = Vector3.new(0.9, 0.9, 2.2),
-		Color = dark,
-		Material = Enum.Material.Metal,
-		Anchored = false,
-		CanCollide = false,
-		Parent = tool,
-	})
-	local function attach(part)
-		part.Anchored = false
-		part.CanCollide = false
-		part.Massless = true
-		local w = Instance.new("WeldConstraint")
-		w.Part0 = handle
-		w.Part1 = part
-		w.Parent = part
-		part.Parent = tool
-	end
-	-- 回る銃身（6本）
-	for k = 0, 5 do
-		local a = k * math.pi / 3
-		local barrel = makePart({
-			Shape = Enum.PartType.Cylinder,
-			Size = Vector3.new(2.6, 0.22, 0.22),
-			CFrame = handle.CFrame * CFrame.new(math.cos(a) * 0.3, math.sin(a) * 0.3, -2.3) * CFrame.Angles(0, math.pi / 2, 0),
-			Color = Color3.fromRGB(120, 120, 130),
-			Material = Enum.Material.Metal,
-		})
-		attach(barrel)
-	end
-	local ring = makePart({
-		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(0.3, 1, 1),
-		CFrame = handle.CFrame * CFrame.new(0, 0, -3.3) * CFrame.Angles(0, math.pi / 2, 0),
-		Color = Color3.fromRGB(255, 200, 40),
-		Material = Enum.Material.Neon,
-	})
-	attach(ring)
-	local muzzle = Instance.new("Attachment")
-	muzzle.Name = "Muzzle"
-	muzzle.Position = Vector3.new(0, 0, -3.7)
-	muzzle.Parent = handle
-	return tool
-end
-
-local function giveTools(player)
-	local st = states[player]
-	local backpack = player:FindFirstChildOfClass("Backpack")
-	if not st or not backpack then
-		return
-	end
-	local char = player.Character
-	local function has(name)
-		return backpack:FindFirstChild(name) or (char and char:FindFirstChild(name))
-	end
-	if not has("バット") then
-		makeBat().Parent = backpack
-	end
-	if st.hasMinigun and not has("ミニガン") then
-		makeMinigun().Parent = backpack
-	end
-end
-
-local function grantMinigun(player)
-	local st = states[player]
-	if st and not st.hasMinigun then
-		st.hasMinigun = true
-		player:SetAttribute("HasMinigun", true)
-		giveTools(player)
-	end
-end
-
-local function checkMinigunPass(player)
-	if Config.MinigunGamePassId == 0 then
-		return
-	end
-	local ok, owns = pcall(function()
-		return MarketplaceService:UserOwnsGamePassAsync(player.UserId, Config.MinigunGamePassId)
-	end)
-	if ok and owns then
-		grantMinigun(player)
-	end
-end
-
-MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passId, purchased)
-	if purchased and passId == Config.MinigunGamePassId then
-		grantMinigun(player)
-		notify(player, "ミニガンを手に入れた！")
-	end
-end)
-
-MinigunFire.OnServerEvent:Connect(function(player, aimPos)
-	local st = states[player]
-	local char = player.Character
-	local tool = char and char:FindFirstChild("ミニガン")
-	local handle = tool and tool:FindFirstChild("Handle")
-	if not st or not st.hasMinigun or not handle or typeof(aimPos) ~= "Vector3" then
-		return
-	end
-	local t = now()
-	if t - (st.lastShot or 0) < Config.MinigunFireInterval * 0.8 then
-		return
-	end
-	st.lastShot = t
-
-	local origin = handle.Muzzle.WorldPosition
-	local dir = aimPos - origin
-	if dir.Magnitude < 0.1 then
-		return
-	end
-	dir = dir.Unit * Config.MinigunRange
-	local params = RaycastParams.new()
-	params.FilterDescendantsInstances = { char }
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	local hit = workspace:Raycast(origin, dir, params)
-	local endPos = hit and hit.Position or origin + dir
-
-	-- 弾の光
-	local len = (endPos - origin).Magnitude
-	local tracer = makePart({
-		Size = Vector3.new(0.15, 0.15, len),
-		CFrame = CFrame.lookAt(origin, endPos) * CFrame.new(0, 0, -len / 2),
-		Color = Color3.fromRGB(255, 220, 80),
-		Material = Enum.Material.Neon,
-		CanCollide = false,
-		CanQuery = false,
-		CanTouch = false,
-		Parent = workspace,
-	})
-	Debris:AddItem(tracer, 0.06)
-
-	if hit then
-		local model = hit.Instance:FindFirstAncestorOfClass("Model")
-		local target = model and Players:GetPlayerFromCharacter(model)
-		if target and target ~= player then
-			hitPlayer(player, target, false)
-		end
-	end
-end)
-
---------------------------------------------------------------------------
 -- プレイヤー参加 / 退出
 --------------------------------------------------------------------------
 local function onCharacterAdded(player, char)
@@ -1305,7 +1048,6 @@ local function onCharacterAdded(player, char)
 	task.wait(0.1)
 	char:PivotTo(st.base.cf * CFrame.new(0, 4, -HALF + 6))
 	updateSpeed(player)
-	giveTools(player)
 	hum.Died:Connect(function()
 		dropCarry(player)
 	end)
@@ -1356,7 +1098,6 @@ local function onPlayerAdded(player)
 	player:SetAttribute("SpeedLevel", st.speedLevel)
 	player:SetAttribute("LockedUntil", 0)
 	player:SetAttribute("LockCooldownEnd", 0)
-	player:SetAttribute("HasMinigun", false)
 
 	states[player] = st
 	base.owner = player
@@ -1372,7 +1113,6 @@ local function onPlayerAdded(player)
 		task.spawn(onCharacterAdded, player, player.Character)
 	end
 	notify(player, "中央の卵畑から卵を持ち帰ろう！")
-	task.spawn(checkMinigunPass, player)
 end
 
 Players.PlayerAdded:Connect(onPlayerAdded)
