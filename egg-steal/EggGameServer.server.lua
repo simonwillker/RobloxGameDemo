@@ -1218,10 +1218,10 @@ local CODES = {
 	-- 飛べるようになる（この回のプレイ中ずっと）
 	["うんこです"] = function(player, st)
 		if player:GetAttribute("CanFly") then
-			return "もう飛べるよ！ H キー（または「飛ぶ」ボタン）"
+			return "もう飛べるよ！ジャンプを2回押してね"
 		end
 		player:SetAttribute("CanFly", true)
-		return "コード成功！飛べるようになった！ H キー（または「飛ぶ」ボタン）で ON/OFF"
+		return "コード成功！ジャンプを2回押すと飛べる（もう一度2回押すと着地）"
 	end,
 	-- 毎秒の収入が2倍（この回のプレイ中ずっと。重ねがけはできない）
 	["インムキング"] = function(player, st)
@@ -1237,6 +1237,7 @@ local CODES = {
 -- 管理者だけが使えるコード
 local ADMIN_ONLY_CODES = {
 	["114514810"] = true,
+	["うんこです"] = true,
 }
 
 -- 管理者 = ゲームの持ち主（グループのゲームならグループのオーナー）＋ EggConfig.AdminUserIds の人

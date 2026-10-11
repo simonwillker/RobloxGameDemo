@@ -113,10 +113,7 @@ shoveButton.Text = "押す [F]"
 local dropButton = makeButton(Color3.fromRGB(120, 120, 140))
 dropButton.Text = "落とす [G]"
 dropButton.Visible = false -- 何か持っているときだけ表示
-local flyButton = makeButton(Color3.fromRGB(80, 160, 230))
-flyButton.Text = "飛ぶ [H]"
-flyButton.Visible = false -- コード「うんこです」を使うと表示
-panel.Size = UDim2.fromOffset(200, 400)
+panel.Size = UDim2.fromOffset(200, 330)
 
 local notice = Instance.new("TextLabel")
 notice.AnchorPoint = Vector2.new(0.5, 0)
@@ -165,7 +162,8 @@ dropButton.Activated:Connect(function()
 end)
 
 --------------------------------------------------------------------------
--- 飛ぶ（コード「うんこです」）
+-- 飛ぶ（コード「うんこです」・管理者専用）
+-- ジャンプを2回すばやく押すと飛ぶ / もう一度2回押すと着地。
 -- 移動キー/スティックでカメラの向きへ飛ぶ。スペースで上昇、Q で下降。
 --------------------------------------------------------------------------
 local FLY_SPEED = 50
@@ -196,7 +194,6 @@ local function stopFly()
 	if hum then
 		hum.PlatformStand = false
 	end
-	flyButton.Text = "飛ぶ [H]"
 end
 
 local function startFly()
@@ -217,7 +214,6 @@ local function startFly()
 	flyGyro.CFrame = root.CFrame
 	flyGyro.Parent = root
 	hum.PlatformStand = true
-	flyButton.Text = "飛ぶのをやめる [H]"
 end
 
 local function toggleFly()
@@ -230,11 +226,27 @@ local function toggleFly()
 		startFly()
 	end
 end
-flyButton.Activated:Connect(toggleFly)
 player.CharacterAdded:Connect(function()
 	flying = false
 	flyVel, flyGyro = nil, nil
-	flyButton.Text = "飛ぶ [H]"
+end)
+
+-- ジャンプの2回押しを見分ける（押しっぱなしは1回と数える。スマホのジャンプボタンでもOK）
+local lastJumpSignal = 0
+local lastJumpPress = 0
+UserInputService.JumpRequest:Connect(function()
+	local t = os.clock()
+	local isNewPress = t - lastJumpSignal > 0.12
+	lastJumpSignal = t
+	if not isNewPress then
+		return
+	end
+	if t - lastJumpPress < 0.35 then
+		lastJumpPress = 0
+		toggleFly()
+	else
+		lastJumpPress = t
+	end
 end)
 
 RunService.RenderStepped:Connect(function()
@@ -270,8 +282,6 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		remotes.Shove:FireServer()
 	elseif input.KeyCode == Enum.KeyCode.G then
 		remotes.DropItem:FireServer()
-	elseif input.KeyCode == Enum.KeyCode.H then
-		toggleFly()
 	end
 end)
 
@@ -352,7 +362,6 @@ while true do
 	end
 
 	dropButton.Visible = player:GetAttribute("Carrying") ~= nil
-	flyButton.Visible = player:GetAttribute("CanFly") == true
 
 	task.wait(0.2)
 end
