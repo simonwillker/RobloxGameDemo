@@ -167,10 +167,12 @@ end)
 -- マイクラのクリエイティブ飛行と同じ操作：
 -- スティック（WASD）で水平に360度動く（カメラを上下に向けても高さは変わらない）。
 -- ジャンプ長押しで上昇、しゃがむ（Ctrl か Q / スマホは「しゃがむ」ボタン長押し）で下降。
+-- 体は進む方向へ360度傾く（前のめり・反り返り・横倒し）。後ろへ進んでも振り向かない。
 --------------------------------------------------------------------------
 local FLY_SPEED = 16 * 12 -- 歩く速さ(16)の12倍
 local FLY_SMOOTH = 5 -- 大きいほどすぐ最高速になる（なめらかさ）
 local TURN_SMOOTH = 10 -- 体の向きを変える速さ
+local MAX_TILT = math.rad(60) -- 体を傾ける最大の角度
 local flying = false
 local flyVel, flyGyro
 local facing = Vector3.new(0, 0, -1)
@@ -316,18 +318,18 @@ RunService.RenderStepped:Connect(function(dt)
 	-- だんだん加速・減速して、なめらかに動く
 	flyVel.Velocity = flyVel.Velocity:Lerp(target, math.min(1, dt * FLY_SMOOTH))
 
-	-- 体は進む方向（横の向き）へなめらかに振り向く。止まっているときはそのまま
-	local flat = dir
-	if flat.Magnitude > 0.05 then
-		local blended = facing:Lerp(flat.Unit, math.min(1, dt * TURN_SMOOTH))
-		if blended.Magnitude > 0.01 then
-			facing = blended.Unit
-		else
-			facing = flat.Unit
-		end
-	end
+	-- 体はカメラの前を向いたまま（後ろに進んでも振り向かない）、
+	-- 進む方向へ体を傾ける：前へ進むと前のめり、後ろは反り返る、横は横に傾く、
+	-- 上昇は上向き、下降は下向き。速さに合わせてなめらかに傾く
+	facing = facing:Lerp(forward, math.min(1, dt * TURN_SMOOTH))
+	facing = facing.Magnitude > 0.01 and facing.Unit or forward
 	local pos = flyGyro.Parent.Position
-	flyGyro.CFrame = CFrame.lookAt(pos, pos + facing)
+	local base = CFrame.lookAt(pos, pos + facing)
+	local localVel = base:VectorToObjectSpace(flyVel.Velocity) / FLY_SPEED
+	local pitch = localVel.Z * MAX_TILT + localVel.Y * MAX_TILT * 0.6
+	local roll = -localVel.X * MAX_TILT
+	pitch = math.clamp(pitch, -MAX_TILT, MAX_TILT)
+	flyGyro.CFrame = base * CFrame.Angles(pitch, 0, roll)
 end)
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then
