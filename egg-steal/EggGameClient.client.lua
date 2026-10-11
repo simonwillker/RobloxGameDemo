@@ -164,9 +164,9 @@ end)
 --------------------------------------------------------------------------
 -- 飛ぶ（コード「うんこです」・管理者専用）
 -- ジャンプを2回すばやく押すと飛ぶ / もう一度2回押すと着地。
--- 空を歩く感じ：スティック（WASD）で地面を歩くのと同じように360度動く。
--- カメラを上下に向けても高さは変わらない。体は進む方向へなめらかに向く。
--- ジャンプ長押しで上昇、Q か Ctrl で下降（スマホは2回押しで着地して降りる）。
+-- マイクラのクリエイティブ飛行と同じ操作：
+-- スティック（WASD）で水平に360度動く（カメラを上下に向けても高さは変わらない）。
+-- ジャンプ長押しで上昇、しゃがむ（Ctrl か Q / スマホは「しゃがむ」ボタン長押し）で下降。
 --------------------------------------------------------------------------
 local FLY_SPEED = 16 * 12 -- 歩く速さ(16)の12倍
 local FLY_SMOOTH = 5 -- 大きいほどすぐ最高速になる（なめらかさ）
@@ -181,6 +181,32 @@ task.spawn(function()
 	end)
 	if ok then
 		controls = playerModule:GetControls()
+	end
+end)
+
+-- スマホ用「しゃがむ」ボタン（飛んでいる間だけ、ジャンプボタンの左に出る）
+local crouchHeld = false
+local crouchButton = Instance.new("TextButton")
+crouchButton.AnchorPoint = Vector2.new(1, 1)
+crouchButton.Position = UDim2.new(1, -200, 1, -30)
+crouchButton.Size = UDim2.fromOffset(80, 80)
+crouchButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+crouchButton.BackgroundTransparency = 0.4
+crouchButton.Font = Enum.Font.GothamBold
+crouchButton.TextScaled = true
+crouchButton.TextColor3 = Color3.new(1, 1, 1)
+crouchButton.Text = "しゃがむ"
+crouchButton.Visible = false
+crouchButton.Parent = gui
+Instance.new("UICorner", crouchButton).CornerRadius = UDim.new(1, 0)
+crouchButton.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+		crouchHeld = true
+	end
+end)
+crouchButton.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+		crouchHeld = false
 	end
 end)
 
@@ -199,6 +225,8 @@ local function stopFly()
 	if hum then
 		hum.PlatformStand = false
 	end
+	crouchButton.Visible = false
+	crouchHeld = false
 end
 
 local function startFly()
@@ -221,6 +249,7 @@ local function startFly()
 	local look = root.CFrame.LookVector * Vector3.new(1, 0, 1)
 	facing = look.Magnitude > 0.01 and look.Unit or Vector3.new(0, 0, -1)
 	hum.PlatformStand = true
+	crouchButton.Visible = UserInputService.TouchEnabled
 end
 
 local function toggleFly()
@@ -236,6 +265,8 @@ end
 player.CharacterAdded:Connect(function()
 	flying = false
 	flyVel, flyGyro = nil, nil
+	crouchButton.Visible = false
+	crouchHeld = false
 end)
 
 -- ジャンプの2回押しを見分ける（押しっぱなしは1回と数える。スマホのジャンプボタンでもOK）
@@ -273,12 +304,13 @@ RunService.RenderStepped:Connect(function(dt)
 	if dir.Magnitude > 1 then
 		dir = dir.Unit
 	end
-	-- ジャンプ長押しで上昇、Q / Ctrl で下降
+	-- ジャンプ長押しで上昇、しゃがむ（Ctrl / Q / ボタン）で下降。両方なら止まる
 	local up = 0
 	if UserInputService:IsKeyDown(Enum.KeyCode.Space) or os.clock() - lastJumpSignal < 0.15 then
-		up = 1
-	elseif UserInputService:IsKeyDown(Enum.KeyCode.Q) or UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
-		up = -1
+		up += 1
+	end
+	if crouchHeld or UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.Q) then
+		up -= 1
 	end
 	local target = dir * FLY_SPEED + Vector3.new(0, up * FLY_SPEED * 0.5, 0)
 	-- だんだん加速・減速して、なめらかに動く
