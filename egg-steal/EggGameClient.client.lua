@@ -167,7 +167,8 @@ end)
 -- 地面を歩くのと同じ操作で水平に飛ぶ（高さは変わらない）。
 -- 上昇：スペース / 「↑」ボタン、下降：Q か Ctrl / 「↓」ボタン。
 --------------------------------------------------------------------------
-local FLY_SPEED = 50
+local FLY_SPEED = 16 * 12 -- 歩く速さ(16)の12倍
+local FLY_SMOOTH = 5 -- 大きいほどすぐ最高速になる（なめらかさ）
 local flying = false
 local flyVel, flyGyro
 local controls = nil
@@ -291,7 +292,7 @@ UserInputService.JumpRequest:Connect(function()
 	end
 end)
 
-RunService.RenderStepped:Connect(function()
+RunService.RenderStepped:Connect(function(dt)
 	if not flying or not flyVel or not flyVel.Parent then
 		if flying then
 			stopFly()
@@ -315,13 +316,13 @@ RunService.RenderStepped:Connect(function()
 	if dir.Magnitude > 1 then
 		dir = dir.Unit
 	end
-	flyVel.Velocity = dir * FLY_SPEED + Vector3.new(0, up * FLY_SPEED * 0.6, 0)
+	local target = dir * FLY_SPEED + Vector3.new(0, up * FLY_SPEED * 0.5, 0)
+	-- だんだん加速・減速して、なめらかに動く
+	flyVel.Velocity = flyVel.Velocity:Lerp(target, math.min(1, dt * FLY_SMOOTH))
 
-	-- 進む方向を向く（止まっているときはそのまま）
+	-- 体はいつもカメラの前を向く（後ろに進んでも振り向かない）
 	local pos = flyGyro.Parent.Position
-	if dir.Magnitude > 0.05 then
-		flyGyro.CFrame = CFrame.lookAt(pos, pos + dir)
-	end
+	flyGyro.CFrame = CFrame.lookAt(pos, pos + forward)
 end)
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then
