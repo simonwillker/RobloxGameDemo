@@ -164,10 +164,9 @@ end)
 --------------------------------------------------------------------------
 -- 飛ぶ（コード「うんこです」・管理者専用）
 -- ジャンプを2回すばやく押すと飛ぶ / もう一度2回押すと着地。
--- スティック（WASD）で360度どこへでも。カメラが向いている方向へ飛ぶので、
--- カメラを上に向けて前に進むと上昇、下に向けると下降（ボタンはなし）。
--- 体は進む方向へなめらかに向きを変える（スイッチのゲームのキャラのような操作）。
--- パソコンではスペースで真上、Q か Ctrl で真下にも動ける。
+-- 空を歩く感じ：スティック（WASD）で地面を歩くのと同じように360度動く。
+-- カメラを上下に向けても高さは変わらない。体は進む方向へなめらかに向く。
+-- ジャンプ長押しで上昇、Q か Ctrl で下降（スマホは2回押しで着地して降りる）。
 --------------------------------------------------------------------------
 local FLY_SPEED = 16 * 12 -- 歩く速さ(16)の12倍
 local FLY_SMOOTH = 5 -- 大きいほどすぐ最高速になる（なめらかさ）
@@ -266,22 +265,27 @@ RunService.RenderStepped:Connect(function(dt)
 	end
 	local cam = workspace.CurrentCamera
 	local move = controls and controls:GetMoveVector() or Vector3.zero
-	-- カメラの向き（上下も含む）を基準に360度動く
-	local camCF = cam.CFrame
-	local dir = camCF.RightVector * move.X - camCF.LookVector * move.Z
-	if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-		dir += Vector3.new(0, 1, 0)
-	elseif UserInputService:IsKeyDown(Enum.KeyCode.Q) or UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
-		dir -= Vector3.new(0, 1, 0)
-	end
+	-- カメラの向きを水平にして使う（歩くときと同じ。上下を向いても高さは変わらない）
+	local forward = cam.CFrame.LookVector * Vector3.new(1, 0, 1)
+	forward = forward.Magnitude > 0.01 and forward.Unit or Vector3.new(0, 0, -1)
+	local right = Vector3.new(-forward.Z, 0, forward.X)
+	local dir = right * move.X - forward * move.Z
 	if dir.Magnitude > 1 then
 		dir = dir.Unit
 	end
+	-- ジャンプ長押しで上昇、Q / Ctrl で下降
+	local up = 0
+	if UserInputService:IsKeyDown(Enum.KeyCode.Space) or os.clock() - lastJumpSignal < 0.15 then
+		up = 1
+	elseif UserInputService:IsKeyDown(Enum.KeyCode.Q) or UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+		up = -1
+	end
+	local target = dir * FLY_SPEED + Vector3.new(0, up * FLY_SPEED * 0.5, 0)
 	-- だんだん加速・減速して、なめらかに動く
-	flyVel.Velocity = flyVel.Velocity:Lerp(dir * FLY_SPEED, math.min(1, dt * FLY_SMOOTH))
+	flyVel.Velocity = flyVel.Velocity:Lerp(target, math.min(1, dt * FLY_SMOOTH))
 
 	-- 体は進む方向（横の向き）へなめらかに振り向く。止まっているときはそのまま
-	local flat = dir * Vector3.new(1, 0, 1)
+	local flat = dir
 	if flat.Magnitude > 0.05 then
 		local blended = facing:Lerp(flat.Unit, math.min(1, dt * TURN_SMOOTH))
 		if blended.Magnitude > 0.01 then
