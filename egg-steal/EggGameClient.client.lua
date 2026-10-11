@@ -214,6 +214,59 @@ crouchButton.InputEnded:Connect(function(input)
 	end
 end)
 
+-- スマホ用「飛ぶスティック」（飛んでいる間だけ左下に出る。指で押して動かした方向へ進む）
+local STICK_SIZE = 160
+local stickTouch = nil
+local stickMove = Vector3.zero
+local stickBase = Instance.new("TextButton")
+stickBase.Text = ""
+stickBase.AutoButtonColor = false
+stickBase.AnchorPoint = Vector2.new(0, 1)
+stickBase.Position = UDim2.new(0, 40, 1, -40)
+stickBase.Size = UDim2.fromOffset(STICK_SIZE, STICK_SIZE)
+stickBase.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+stickBase.BackgroundTransparency = 0.7
+stickBase.Visible = false
+stickBase.Parent = gui
+Instance.new("UICorner", stickBase).CornerRadius = UDim.new(1, 0)
+local stickKnob = Instance.new("Frame")
+stickKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+stickKnob.Position = UDim2.fromScale(0.5, 0.5)
+stickKnob.Size = UDim2.fromOffset(70, 70)
+stickKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+stickKnob.BackgroundTransparency = 0.2
+stickKnob.Parent = stickBase
+Instance.new("UICorner", stickKnob).CornerRadius = UDim.new(1, 0)
+local function resetStick()
+	stickTouch = nil
+	stickMove = Vector3.zero
+	stickKnob.Position = UDim2.fromScale(0.5, 0.5)
+end
+stickBase.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+		stickTouch = input
+	end
+end)
+UserInputService.InputEnded:Connect(function(input)
+	if input == stickTouch then
+		resetStick()
+	end
+end)
+local function updateStick()
+	if not stickTouch then
+		return
+	end
+	local center = stickBase.AbsolutePosition + stickBase.AbsoluteSize / 2
+	local offset = Vector2.new(stickTouch.Position.X, stickTouch.Position.Y) - center
+	local radius = STICK_SIZE / 2
+	if offset.Magnitude > radius then
+		offset = offset.Unit * radius
+	end
+	stickKnob.Position = UDim2.new(0.5, offset.X, 0.5, offset.Y)
+	local v = offset / radius
+	stickMove = v.Magnitude > 0.15 and Vector3.new(v.X, 0, v.Y) or Vector3.zero
+end
+
 local function stopFly()
 	flying = false
 	if flyVel then
@@ -231,6 +284,8 @@ local function stopFly()
 	end
 	crouchButton.Visible = false
 	crouchHeld = false
+	stickBase.Visible = false
+	resetStick()
 end
 
 local function startFly()
@@ -254,6 +309,7 @@ local function startFly()
 	facing = look.Magnitude > 0.01 and look.Unit or Vector3.new(0, 0, -1)
 	hum.PlatformStand = true
 	crouchButton.Visible = UserInputService.TouchEnabled
+	stickBase.Visible = UserInputService.TouchEnabled
 end
 
 local function toggleFly()
@@ -271,6 +327,8 @@ player.CharacterAdded:Connect(function()
 	flyVel, flyGyro = nil, nil
 	crouchButton.Visible = false
 	crouchHeld = false
+	stickBase.Visible = false
+	resetStick()
 end)
 
 -- ジャンプの2回押しを見分ける（押しっぱなしは1回と数える。スマホのジャンプボタンでもOK）
@@ -299,9 +357,10 @@ RunService.RenderStepped:Connect(function(dt)
 		return
 	end
 	local cam = workspace.CurrentCamera
-	-- 移動の入力を読む（スティック → キーボード → キャラの歩く向き の順で、どれかが取れればOK）
-	local move = Vector3.zero
-	if controls then
+	-- 移動の入力を読む（飛ぶスティック → いつものスティック → キーボード → キャラの歩く向き）
+	updateStick()
+	local move = stickMove
+	if move.Magnitude < 0.05 and controls then
 		local ok, v = pcall(function()
 			return controls:GetMoveVector()
 		end)
