@@ -911,10 +911,68 @@ local function spawnFieldItem(item, groundPos)
 	model.Parent = fieldFolder
 end
 
+-- 810の卵（いちばんレアな卵）は、卵畑には1日に1個だけ出る（日本時間の0時でリセット）。
+-- セーブが使えるときは全サーバー合わせて1日1個、使えないときはサーバーごとに1日1個。
+-- 管理者のコード「114514810」はこの制限と関係なく使える。
+local TOP_RARITY = #Config.Rarities
+local globalStore = nil
+if Config.UseDataStore then
+	local ok, ds = pcall(function()
+		return DataStoreService:GetDataStore("EggStealGlobal_v1")
+	end)
+	if ok then
+		globalStore = ds
+	end
+end
+local localTopDay = nil
+local function todayJST()
+	return math.floor((os.time() + 9 * 3600) / 86400)
+end
+local function claimTopEggToday()
+	local day = todayJST()
+	if localTopDay == day then
+		return false
+	end
+	if globalStore then
+		local claimed = false
+		local ok = pcall(function()
+			globalStore:UpdateAsync("Egg810Day", function(old)
+				if old == day then
+					claimed = false
+					return nil -- 今日はもう出た
+				end
+				claimed = true
+				return day
+			end)
+		end)
+		if ok then
+			if claimed then
+				localTopDay = day
+			end
+			return claimed
+		end
+	end
+	localTopDay = day
+	return true
+end
+
+local function pickFieldRarity()
+	local r = weightedPick(Config.Rarities)
+	if r == TOP_RARITY and not claimTopEggToday() then
+		-- 今日の810はもう出たので、810以外から選び直す
+		local others = {}
+		for i = 1, TOP_RARITY - 1 do
+			others[i] = Config.Rarities[i]
+		end
+		r = weightedPick(others)
+	end
+	return r
+end
+
 task.spawn(function()
 	while true do
 		if #fieldFolder:GetChildren() < Config.FieldEggCount then
-			local r = weightedPick(Config.Rarities)
+			local r = pickFieldRarity()
 			spawnFieldItem({ k = "egg", r = r, s = math.random(1, eggStyleCount(r)) })
 		end
 		task.wait(Config.EggSpawnInterval)
