@@ -13,7 +13,11 @@ local Config = require(ReplicatedStorage:WaitForChild("EggConfig"))
 local remotes = ReplicatedStorage:WaitForChild("EggRemotes")
 
 local function formatNumber(n)
-	if n >= 1e9 then
+	if n >= 1e15 then
+		return string.format("%.1fQa", n / 1e15)
+	elseif n >= 1e12 then
+		return string.format("%.1fT", n / 1e12)
+	elseif n >= 1e9 then
 		return string.format("%.1fB", n / 1e9)
 	elseif n >= 1e6 then
 		return string.format("%.1fM", n / 1e6)
@@ -147,7 +151,12 @@ task.spawn(function()
 		local current = workspace:GetAttribute("WeatherEvent")
 		local endsAt = workspace:GetAttribute("EventEndsAt")
 		local nextAt = workspace:GetAttribute("NextEventAt")
-		if current and endsAt then
+		local ogEndsAt = workspace:GetAttribute("OGEventEndsAt")
+		if ogEndsAt then
+			eventLabel.Text = "🌈 OGイベント中！ あと " .. clockText(ogEndsAt - t)
+			eventLabel.TextColor3 = Color3.fromHSV((os.clock() * 0.25) % 1, 0.6, 1)
+			eventLabel.Visible = true
+		elseif current and endsAt then
 			eventLabel.Text = current .. "中！ あと " .. clockText(endsAt - t)
 			eventLabel.TextColor3 = Color3.fromRGB(255, 220, 80)
 			eventLabel.Visible = true
@@ -279,7 +288,7 @@ indexGrid.Parent = indexList
 local indexCells = {}
 local indexTotal = 0
 for r, list in ipairs(Config.Species) do
-	for sIdx, sp in ipairs(list) do
+	for sIdx, sp in ipairs(Config.Rarities[r].Limited and {} or list) do -- 限定（OG）はのせない
 		indexTotal += 1
 		local cell = Instance.new("TextLabel")
 		cell.LayoutOrder = indexTotal

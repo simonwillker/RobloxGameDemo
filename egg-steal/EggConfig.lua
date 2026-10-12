@@ -97,7 +97,21 @@ Config.Rarities = {
 		{ Main = rgb(20, 0, 40), Accent = rgb(255, 230, 0) },
 		{ Main = rgb(0, 30, 60), Accent = rgb(120, 255, 120) },
 	} },
+	-- OG：管理者のイベントでしか手に入らない限定の卵（Weight 0 なので卵畑には自然に出ない）
+	-- Rainbow = 虹色に光る、Limited = 限定（インデックスには数えない）
+	{ Name = "OG", Color = rgb(255, 90, 220), Income = 100000000, Weight = 0, Rainbow = true, Limited = true, Palettes = {
+		{ Main = rgb(255, 80, 80), Accent = rgb(255, 255, 255) },
+		{ Main = rgb(80, 200, 255), Accent = rgb(255, 255, 255) },
+		{ Main = rgb(255, 220, 60), Accent = rgb(255, 255, 255) },
+		{ Main = rgb(170, 90, 255), Accent = rgb(255, 255, 255) },
+	} },
 }
+Config.Rarity810 = 7 -- 「810」のレア度の番号（コード 114514810・1日1個のルールで使う）
+
+-- OGイベント（マップの端のボタンを管理者が押すと始まる）
+Config.OGEventDuration = 600   -- 10分間
+Config.OGEggScale = 10         -- 卵畑に出るOGの卵の大きさ（ふつうの卵の何倍か。100にするとマップより大きくなる）
+Config.OGEggRespawn = 30       -- だれかが取ってから、次のOGの卵が出るまでの秒数
 
 -- 卵から生まれる生き物。Species[レア度の番号] の中から Weight で選ばれる。
 -- Body: "ball"(まんまる) / "bean"(たまご型) / "block"(しかく) / "worm"(長いからだ)
@@ -150,6 +164,10 @@ Config.Species = {
 		{ Name = "810キング", Body = "block", Color = rgb(255, 200, 30), Accent = rgb(0, 255, 230), Features = { "crown", "bigWings", "stars", "legs" }, Material = Enum.Material.Metal, Scale = 1.6, Income = 3000, Weight = 40 },
 		{ Name = "ムゲンスライム", Body = "bean", Color = rgb(10, 10, 20), Accent = rgb(255, 0, 180), Features = { "crown", "halo", "stars", "antenna" }, Material = GLASS, Transparency = 0.1, Scale = 1.6, Income = 3500, Weight = 35 },
 		{ Name = "ヤミノカミ", Body = "ball", Color = rgb(15, 0, 30), Accent = rgb(255, 230, 0), Features = { "horn", "bigWings", "halo", "tentacles", "fire" }, Lift = 1.1, Scale = 1.6, Income = 4000, Weight = 25 },
+	},
+	[8] = { -- OG（限定）
+		-- いちごのからだのゾウ。虹色に光り、全部の異変（炎・キラキラ・光の輪・王冠・星・オーラ）がついている
+		{ Name = "いちごゾウ", Body = "bean", Color = rgb(235, 40, 60), Accent = rgb(255, 230, 90), Features = { "elephant", "strawberry", "halo", "crown", "stars", "fire", "bigWings" }, Rainbow = true, Scale = 1.8, Income = 10000000000, Weight = 1 },
 	},
 }
 

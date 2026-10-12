@@ -6,6 +6,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local DataStoreService = game:GetService("DataStoreService")
 local Debris = game:GetService("Debris")
+local CollectionService = game:GetService("CollectionService")
 
 print("[卵どろぼう] サーバースクリプト起動")
 local Config = require(ReplicatedStorage:WaitForChild("EggConfig"))
@@ -179,7 +180,11 @@ local function makeLabel(parent, text, color, size, offsetY, maxDistance)
 end
 
 local function formatNumber(n)
-	if n >= 1e9 then
+	if n >= 1e15 then
+		return string.format("%.1fQa", n / 1e15)
+	elseif n >= 1e12 then
+		return string.format("%.1fT", n / 1e12)
+	elseif n >= 1e9 then
 		return string.format("%.1fB", n / 1e9)
 	elseif n >= 1e6 then
 		return string.format("%.1fM", n / 1e6)
@@ -243,6 +248,56 @@ local function vcyl(model, length, diameter, cf, color, mat)
 		Color = color,
 		Material = mat or SMOOTH,
 	})
+end
+
+-- 虹色に光るパーツ（下の虹色ループが色を変え続ける）
+local RAINBOW_TAG = "EggRainbow"
+local function makeRainbow(part, offset)
+	part:SetAttribute("RainbowOffset", offset or math.random())
+	CollectionService:AddTag(part, RAINBOW_TAG)
+end
+task.spawn(function()
+	while true do
+		local t = os.clock() * 0.25
+		for _, part in ipairs(CollectionService:GetTagged(RAINBOW_TAG)) do
+			if part:IsDescendantOf(workspace) then
+				part.Color = Color3.fromHSV((t + (part:GetAttribute("RainbowOffset") or 0)) % 1, 0.75, 1)
+			end
+		end
+		task.wait(0.1)
+	end
+end)
+
+-- 虹色のオーラ（光る殻＋虹色の粒）
+local function addRainbowAura(model, root, size, center)
+	local aura = ellipsoid(model, size, center, Color3.new(1, 0, 0), NEON)
+	aura.Transparency = 0.65
+	aura.CastShadow = false
+	makeRainbow(aura, 0)
+	local att = Instance.new("Attachment")
+	att.Parent = root
+	local e = Instance.new("ParticleEmitter")
+	e.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 60, 60)),
+		ColorSequenceKeypoint.new(0.2, Color3.fromRGB(255, 200, 40)),
+		ColorSequenceKeypoint.new(0.4, Color3.fromRGB(80, 255, 80)),
+		ColorSequenceKeypoint.new(0.6, Color3.fromRGB(60, 200, 255)),
+		ColorSequenceKeypoint.new(0.8, Color3.fromRGB(120, 80, 255)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 80, 220)),
+	})
+	e.LightEmission = 1
+	e.Size = NumberSequence.new(0.5, 0)
+	e.Speed = NumberRange.new(2, 5)
+	e.SpreadAngle = Vector2.new(180, 180)
+	e.Lifetime = NumberRange.new(1, 2)
+	e.Rate = 30
+	e.Parent = att
+	local light = Instance.new("PointLight")
+	light.Color = Color3.fromRGB(255, 120, 255)
+	light.Range = 14
+	light.Brightness = 3
+	light.Parent = root
+	return aura
 end
 
 -- 卵（中心が基準点）
@@ -309,8 +364,11 @@ local function buildEgg(r, s)
 		sparkles.SparkleColor = pal.Accent
 		sparkles.Parent = root
 	end
-	if r >= #Config.Rarities then
-		-- いちばん上のレア度は炎のオーラ
+	if rar.Rainbow then
+		addRainbowAura(model, root, Vector3.new(2.8, 3.4, 2.8), CFrame.new())
+	end
+	if r >= Config.Rarity810 then
+		-- 810以上は炎のオーラ
 		local fire = Instance.new("Fire")
 		fire.Color = pal.Accent
 		fire.SecondaryColor = pal.Main
@@ -426,6 +484,43 @@ local function buildCreature(r, s)
 	if feats.tail then
 		ball(model, 0.8, P(0, d.cy - 0.2, d.back + 0.15), accent)
 	end
+	-- ゾウ：大きな耳・長い鼻・きば
+	if feats.elephant then
+		for _, sx in ipairs({ -1, 1 }) do
+			local earCF = CF(sx * (d.side + 0.15), d.eyeY + 0.1, d.headZ + 0.1) * CFrame.Angles(0, sx * math.rad(20), 0)
+			ellipsoid(model, Vector3.new(0.25, 1.7, 1.5), earCF, main, mat)
+			ellipsoid(model, Vector3.new(0.1, 1.2, 1.0), earCF * CFrame.new(-sx * 0.1, 0, 0), Color3.fromRGB(255, 170, 190))
+			block(model, Vector3.new(0.15, 0.15, 0.6), CF(sx * 0.35, d.eyeY - 0.75, d.eyeZ - 0.15) * CFrame.Angles(math.rad(30), 0, 0), WHITE)
+		end
+		local trunk = {
+			{ 0.5, d.eyeY - 0.5, d.eyeZ - 0.2 },
+			{ 0.45, d.eyeY - 0.85, d.eyeZ - 0.35 },
+			{ 0.4, d.eyeY - 1.15, d.eyeZ - 0.45 },
+			{ 0.35, d.eyeY - 1.4, d.eyeZ - 0.6 },
+		}
+		for _, t in ipairs(trunk) do
+			table.insert(bodyParts, ball(model, t[1], P(0, t[2], t[3]), main, mat))
+		end
+	end
+	-- いちご：つぶつぶとへたの葉っぱ
+	if feats.strawberry then
+		local rng = Random.new(810)
+		for _ = 1, 26 do
+			local theta = rng:NextNumber(0, math.pi * 2)
+			-- 顔（正面）にはつけない
+			if math.abs(((theta + math.pi / 2 + math.pi) % (math.pi * 2)) - math.pi) > 0.7 then
+				local h = rng:NextNumber(-1.0, 1.0)
+				local k = math.sqrt(math.max(0, 1 - (h / 1.3) ^ 2))
+				ball(model, 0.18, P(math.cos(theta) * 1.1 * k, d.cy + h, math.sin(theta) * 1.0 * k), accent, NEON)
+			end
+		end
+		local green = Color3.fromRGB(70, 190, 70)
+		for k = 0, 5 do
+			local a = k * math.pi / 3
+			ellipsoid(model, Vector3.new(1.1, 0.15, 0.45), CF(math.cos(a) * 0.45, d.top + 0.02, d.headZ + math.sin(a) * 0.45) * CFrame.Angles(0, -a, math.rad(-15)), green)
+		end
+		vcyl(model, 0.5, 0.2, CF(0, d.top + 0.25, d.headZ), Color3.fromRGB(60, 140, 50))
+	end
 	if feats.horn then
 		block(model, Vector3.new(0.35, 1.1, 0.35), CF(0, d.top + 0.35, d.headZ - 0.3) * CFrame.Angles(math.rad(-25), 0, 0), accent, glow)
 	end
@@ -483,6 +578,14 @@ local function buildCreature(r, s)
 		light.Range = 12
 		light.Brightness = 2
 		light.Parent = root
+	end
+
+	if sp.Rainbow then
+		-- からだを虹色に＋虹色のオーラ
+		for i, p in ipairs(bodyParts) do
+			makeRainbow(p, i * 0.05)
+		end
+		addRainbowAura(model, root, Vector3.new(4, 4.4, 4), CF(0, d.cy, 0))
 	end
 
 	-- 名前ラベルの高さ（頭の上）
@@ -595,8 +698,10 @@ local states = {} -- [player] = プレイヤーの状態
 --------------------------------------------------------------------------
 local INDEX_REWARD_CODE = "2895sh21"
 local INDEX_TOTAL = 0
-for _, list in ipairs(Config.Species) do
-	INDEX_TOTAL += #list
+for r, list in ipairs(Config.Species) do
+	if not Config.Rarities[r].Limited then -- 限定（OG）は数えない
+		INDEX_TOTAL += #list
+	end
 end
 
 local function indexCount(st)
@@ -622,7 +727,7 @@ local function syncIndex(player, st)
 end
 
 local function discover(player, st, item)
-	if not item or item.k ~= "pet" then
+	if not item or item.k ~= "pet" or Config.Rarities[item.r].Limited then
 		return
 	end
 	local key = item.r .. "_" .. item.s
@@ -1020,7 +1125,7 @@ local function groundBelow(pos)
 	return hit and hit.Position or nil
 end
 
-local function spawnFieldItem(item, groundPos)
+local function spawnFieldItem(item, groundPos, scale)
 	if not groundPos then
 		local a = math.random() * math.pi * 2
 		local d = math.sqrt(math.random()) * Config.FieldRadius
@@ -1028,13 +1133,24 @@ local function spawnFieldItem(item, groundPos)
 	end
 	local model, root = buildItem(item)
 	placeItem(model, item, CFrame.new(groundPos) * CFrame.Angles(0, math.random() * math.pi * 2, 0))
+	if scale and scale ~= 1 then
+		-- 大きくする（地面にうまるので、そのぶん持ち上げる）
+		model:ScaleTo(model:GetScale() * scale)
+		placeItem(model, item, CFrame.new(groundPos + Vector3.new(0, 1.3 * (scale - 1), 0)))
+		for _, bb in ipairs(model:GetDescendants()) do
+			if bb:IsA("BillboardGui") then
+				bb.StudsOffset *= scale
+				bb.MaxDistance = 300
+			end
+		end
+	end
 
 	local name = itemInfo(item)
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText = "拾う"
 	prompt.ObjectText = name
 	prompt.HoldDuration = 0
-	prompt.MaxActivationDistance = 10
+	prompt.MaxActivationDistance = 10 + 1.5 * (scale or 1)
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = root
 	prompt.Triggered:Connect(function(player)
@@ -1051,6 +1167,7 @@ local function spawnFieldItem(item, groundPos)
 		notify(player, name .. "をゲット！自分のベースへ運ぼう")
 	end)
 	model.Parent = fieldFolder
+	return model
 end
 
 -- 今の天気イベントの効果（イベントがないときはすべて1）
@@ -1059,7 +1176,7 @@ local weather = { incomeMult = 1, spawnMult = 1, rareBoost = 1 }
 -- 810の卵（いちばんレアな卵）は、卵畑には1日に1個だけ出る（日本時間の0時でリセット）。
 -- セーブが使えるときは全サーバー合わせて1日1個、使えないときはサーバーごとに1日1個。
 -- 管理者のコード「114514810」はこの制限と関係なく使える。
-local TOP_RARITY = #Config.Rarities
+local TOP_RARITY = Config.Rarity810
 local globalStore = nil
 if Config.UseDataStore then
 	local ok, ds = pcall(function()
@@ -1301,7 +1418,7 @@ local function onPlayerAdded(player)
 		for _, key in ipairs(data.index) do
 			local r, sIdx = string.match(tostring(key), "^(%d+)_(%d+)$")
 			r, sIdx = tonumber(r), tonumber(sIdx)
-			if r and sIdx and Config.Species[r] and Config.Species[r][sIdx] then
+			if r and sIdx and Config.Species[r] and Config.Species[r][sIdx] and not Config.Rarities[r].Limited then
 				st.index[key] = true
 			end
 		end
@@ -1316,7 +1433,7 @@ local function onPlayerAdded(player)
 	-- 台にいる生き物もインデックスに登録
 	for i = 1, st.slots do
 		local it = st.items[i]
-		if it and it.k == "pet" then
+		if it and it.k == "pet" and not Config.Rarities[it.r].Limited then
 			st.index[it.r .. "_" .. it.s] = true
 		end
 	end
@@ -1437,7 +1554,7 @@ end)
 -- 何回でも使える。卵は空いている台に置かれる。ADMIN_ONLY_CODES に入れたコードは管理者だけ。
 -- 810の卵をわたす。わたせたら true
 local function give810Egg(player, st)
-	local r = #Config.Rarities -- いちばん強いレア度（810）
+	local r = Config.Rarity810
 	local egg = { k = "egg", r = r, s = math.random(1, eggStyleCount(r)) }
 	for i = 1, st.slots do
 		if st.items[i] == nil and not st.base.busy[i] then
@@ -1877,3 +1994,96 @@ CODES["イベント"] = function(player, st)
 	return "イベントを始めたよ"
 end
 ADMIN_ONLY_CODES["イベント"] = true
+
+--------------------------------------------------------------------------
+-- OGイベント（マップの端のボタン。管理者だけが押せる）
+-- 10分間、卵畑に大きな虹色の「OGの卵」が出る。だれかが取ると、少したって次が出る。
+-- OGの卵からは「いちごゾウ」（毎秒 10B 稼ぐ）が生まれる。
+--------------------------------------------------------------------------
+local OG_RARITY = nil
+for i, rar in ipairs(Config.Rarities) do
+	if rar.Name == "OG" then
+		OG_RARITY = i
+	end
+end
+
+local ogActive = false
+local function runOGEvent()
+	if ogActive or not OG_RARITY then
+		return false
+	end
+	ogActive = true
+	local endsAt = workspace:GetServerTimeNow() + Config.OGEventDuration
+	workspace:SetAttribute("OGEventEndsAt", endsAt)
+	notifyAll("🌈 OGイベントスタート！10分間だけ、卵畑に虹色のOGの卵が出る！")
+
+	local ogModel = nil
+	local nextSpawn = 0
+	while workspace:GetServerTimeNow() < endsAt do
+		local t = workspace:GetServerTimeNow()
+		if ogModel and not ogModel.Parent then
+			-- だれかが取った
+			ogModel = nil
+			nextSpawn = t + Config.OGEggRespawn
+		end
+		if not ogModel and t >= nextSpawn then
+			local item = { k = "egg", r = OG_RARITY, s = math.random(1, eggStyleCount(OG_RARITY)) }
+			ogModel = spawnFieldItem(item, nil, Config.OGEggScale)
+			notifyAll("🌈 卵畑にOGの卵があらわれた！")
+		end
+		task.wait(0.5)
+	end
+
+	if ogModel and ogModel.Parent then
+		ogModel:Destroy()
+	end
+	workspace:SetAttribute("OGEventEndsAt", nil)
+	notifyAll("🌈 OGイベントがおわった")
+	ogActive = false
+	return true
+end
+
+-- ボタン（ベースとベースの間、マップの外側）
+do
+	local angle = math.pi * 2 / Config.MaxBases / 2 -- 1番目と2番目のベースの間
+	local dist = Config.BaseRingRadius + HALF + 30
+	local pos = Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+	local cf = CFrame.lookAt(pos, Vector3.new(0, 0, 0))
+	local stand = makePart({
+		Name = "OGEventStand",
+		Size = Vector3.new(6, 3, 6),
+		CFrame = cf * CFrame.new(0, 1.5, 0),
+		Color = Color3.fromRGB(40, 40, 50),
+		Material = Enum.Material.Metal,
+		Parent = map,
+	})
+	local button = makePart({
+		Name = "OGEventButton",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(1, 4, 4),
+		CFrame = cf * CFrame.new(0, 3.5, 0) * CFrame.Angles(0, 0, math.pi / 2),
+		Color = Color3.fromRGB(255, 60, 200),
+		Material = Enum.Material.Neon,
+		Parent = map,
+	})
+	makeRainbow(button, 0)
+	makeLabel(stand, "🌈 OGイベント\n（管理者専用）", Color3.fromRGB(255, 200, 255), UDim2.fromOffset(200, 60), 6, 120)
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "OGイベント開始"
+	prompt.ObjectText = "管理者専用"
+	prompt.HoldDuration = 1
+	prompt.MaxActivationDistance = 10
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = button
+	prompt.Triggered:Connect(function(player)
+		if not isAdmin(player) then
+			notify(player, "このボタンは管理者しか押せません")
+			return
+		end
+		if ogActive then
+			notify(player, "今はOGイベント中だよ")
+			return
+		end
+		task.spawn(runOGEvent)
+	end)
+end
