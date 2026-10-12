@@ -113,7 +113,9 @@ shoveButton.Text = "押す [F]"
 local dropButton = makeButton(Color3.fromRGB(120, 120, 140))
 dropButton.Text = "落とす [G]"
 dropButton.Visible = false -- 何か持っているときだけ表示
-panel.Size = UDim2.fromOffset(130, 210)
+local indexButton = makeButton(Color3.fromRGB(150, 90, 220))
+indexButton.Text = "インデックス"
+panel.Size = UDim2.fromOffset(130, 250)
 
 local notice = Instance.new("TextLabel")
 notice.AnchorPoint = Vector2.new(0.5, 0)
@@ -159,6 +161,134 @@ end)
 
 dropButton.Activated:Connect(function()
 	remotes.DropItem:FireServer()
+end)
+
+--------------------------------------------------------------------------
+-- インデックス（生き物図鑑）
+-- 生まれた生き物が登録される。まだの生き物は「？？？」。全部そろうとコードが見られる。
+--------------------------------------------------------------------------
+local indexWindow = Instance.new("Frame")
+indexWindow.AnchorPoint = Vector2.new(0.5, 0.5)
+indexWindow.Position = UDim2.fromScale(0.5, 0.5)
+indexWindow.Size = UDim2.new(0.8, 0, 0.75, 0)
+indexWindow.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+indexWindow.BackgroundTransparency = 0.05
+indexWindow.Visible = false
+indexWindow.ZIndex = 10
+indexWindow.Parent = gui
+Instance.new("UICorner", indexWindow).CornerRadius = UDim.new(0, 12)
+local indexLimit = Instance.new("UISizeConstraint")
+indexLimit.MaxSize = Vector2.new(560, 420)
+indexLimit.Parent = indexWindow
+
+local indexTitle = Instance.new("TextLabel")
+indexTitle.Position = UDim2.fromOffset(12, 6)
+indexTitle.Size = UDim2.new(1, -60, 0, 28)
+indexTitle.BackgroundTransparency = 1
+indexTitle.Font = Enum.Font.GothamBold
+indexTitle.TextScaled = true
+indexTitle.TextXAlignment = Enum.TextXAlignment.Left
+indexTitle.TextColor3 = Color3.new(1, 1, 1)
+indexTitle.ZIndex = 11
+indexTitle.Parent = indexWindow
+
+local indexClose = Instance.new("TextButton")
+indexClose.AnchorPoint = Vector2.new(1, 0)
+indexClose.Position = UDim2.new(1, -6, 0, 6)
+indexClose.Size = UDim2.fromOffset(32, 28)
+indexClose.BackgroundColor3 = Color3.fromRGB(220, 70, 70)
+indexClose.Font = Enum.Font.GothamBold
+indexClose.TextScaled = true
+indexClose.TextColor3 = Color3.new(1, 1, 1)
+indexClose.Text = "×"
+indexClose.ZIndex = 11
+indexClose.Parent = indexWindow
+Instance.new("UICorner", indexClose).CornerRadius = UDim.new(0, 8)
+
+local indexCodeLabel = Instance.new("TextLabel")
+indexCodeLabel.AnchorPoint = Vector2.new(0, 1)
+indexCodeLabel.Position = UDim2.new(0, 12, 1, -6)
+indexCodeLabel.Size = UDim2.new(1, -24, 0, 26)
+indexCodeLabel.BackgroundTransparency = 1
+indexCodeLabel.Font = Enum.Font.GothamBold
+indexCodeLabel.TextScaled = true
+indexCodeLabel.TextColor3 = Color3.fromRGB(255, 220, 80)
+indexCodeLabel.ZIndex = 11
+indexCodeLabel.Parent = indexWindow
+
+local indexList = Instance.new("ScrollingFrame")
+indexList.Position = UDim2.fromOffset(10, 40)
+indexList.Size = UDim2.new(1, -20, 1, -76)
+indexList.BackgroundTransparency = 1
+indexList.ScrollBarThickness = 6
+indexList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+indexList.CanvasSize = UDim2.new()
+indexList.ZIndex = 11
+indexList.Parent = indexWindow
+local indexGrid = Instance.new("UIGridLayout")
+indexGrid.CellSize = UDim2.fromOffset(120, 44)
+indexGrid.CellPadding = UDim2.fromOffset(6, 6)
+indexGrid.SortOrder = Enum.SortOrder.LayoutOrder
+indexGrid.Parent = indexList
+
+local indexCells = {}
+local indexTotal = 0
+for r, list in ipairs(Config.Species) do
+	for sIdx, sp in ipairs(list) do
+		indexTotal += 1
+		local cell = Instance.new("TextLabel")
+		cell.LayoutOrder = indexTotal
+		cell.BackgroundColor3 = Color3.fromRGB(60, 60, 75)
+		cell.Font = Enum.Font.GothamBold
+		cell.TextScaled = true
+		cell.TextColor3 = Color3.new(1, 1, 1)
+		cell.ZIndex = 12
+		cell.Parent = indexList
+		Instance.new("UICorner", cell).CornerRadius = UDim.new(0, 8)
+		local stroke = Instance.new("UIStroke")
+		stroke.Thickness = 2
+		stroke.Color = Config.Rarities[r].Color
+		stroke.Parent = cell
+		local pad = Instance.new("UIPadding")
+		pad.PaddingLeft = UDim.new(0, 4)
+		pad.PaddingRight = UDim.new(0, 4)
+		pad.Parent = cell
+		indexCells[r .. "_" .. sIdx] = { label = cell, name = sp.Name, rarity = Config.Rarities[r] }
+	end
+end
+
+local function refreshIndex()
+	local found = {}
+	for key in string.gmatch(player:GetAttribute("IndexData") or "", "[^,]+") do
+		found[key] = true
+	end
+	local count = 0
+	for key, c in pairs(indexCells) do
+		if found[key] then
+			count += 1
+			c.label.Text = c.name .. "\n" .. c.rarity.Name
+			c.label.BackgroundColor3 = c.rarity.Color:Lerp(Color3.new(0, 0, 0), 0.45)
+		else
+			c.label.Text = "？？？\n" .. c.rarity.Name
+			c.label.BackgroundColor3 = Color3.fromRGB(60, 60, 75)
+		end
+	end
+	indexTitle.Text = "インデックス  " .. count .. " / " .. indexTotal
+	local code = player:GetAttribute("IndexCode")
+	if code then
+		indexCodeLabel.Text = "コンプリート！ごほうびコード： " .. code .. "（810の卵・1回だけ）"
+	else
+		indexCodeLabel.Text = "全部そろえると、ごほうびコードがもらえる！"
+	end
+end
+refreshIndex()
+player:GetAttributeChangedSignal("IndexData"):Connect(refreshIndex)
+player:GetAttributeChangedSignal("IndexCode"):Connect(refreshIndex)
+indexButton.Activated:Connect(function()
+	indexWindow.Visible = not indexWindow.Visible
+end)
+indexClose.Activated:Connect(function()
+	indexWindow.Visible = false
 end)
 
 --------------------------------------------------------------------------

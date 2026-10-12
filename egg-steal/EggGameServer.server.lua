@@ -119,7 +119,18 @@ local function saveData(player, st)
 	for i = 1, Config.MaxSlots do
 		items[i] = st.items[i] or 0
 	end
-	local data = { cash = st.cash, slots = st.slots, speedLevel = st.speedLevel, eggs = items }
+	local index = {}
+	for key in pairs(st.index or {}) do
+		table.insert(index, key)
+	end
+	local data = {
+		cash = st.cash,
+		slots = st.slots,
+		speedLevel = st.speedLevel,
+		eggs = items,
+		index = index,
+		usedCodes = st.usedCodes or {},
+	}
 	local ok, err = pcall(function()
 		store:SetAsync("p_" .. player.UserId, data)
 	end)
@@ -576,6 +587,55 @@ local baseColors = {
 }
 
 local states = {} -- [player] = プレイヤーの状態
+
+--------------------------------------------------------------------------
+-- インデックス（生き物図鑑）
+-- 卵を開けて生まれた生き物（と、持っていた生き物）が登録される。
+-- 全部そろうと、ごほうびのコード INDEX_REWARD_CODE が見られる。
+--------------------------------------------------------------------------
+local INDEX_REWARD_CODE = "2895sh21"
+local INDEX_TOTAL = 0
+for _, list in ipairs(Config.Species) do
+	INDEX_TOTAL += #list
+end
+
+local function indexCount(st)
+	local n = 0
+	for _ in pairs(st.index) do
+		n += 1
+	end
+	return n
+end
+
+local function isIndexComplete(st)
+	return indexCount(st) >= INDEX_TOTAL
+end
+
+-- クライアントに見せる（"1_3,2_1,..." の形）
+local function syncIndex(player, st)
+	local keys = {}
+	for key in pairs(st.index) do
+		table.insert(keys, key)
+	end
+	player:SetAttribute("IndexData", table.concat(keys, ","))
+	player:SetAttribute("IndexCode", isIndexComplete(st) and INDEX_REWARD_CODE or nil)
+end
+
+local function discover(player, st, item)
+	if not item or item.k ~= "pet" then
+		return
+	end
+	local key = item.r .. "_" .. item.s
+	if st.index[key] then
+		return
+	end
+	local wasComplete = isIndexComplete(st)
+	st.index[key] = true
+	syncIndex(player, st)
+	if not wasComplete and isIndexComplete(st) then
+		notify(player, "インデックスが全部そろった！ごほうびコード：" .. INDEX_REWARD_CODE)
+	end
+end
 local bases = {}
 
 -- 前方宣言
@@ -859,6 +919,7 @@ function hatchSlot(base, slot, player)
 	end
 	local name, income = itemInfo(pet)
 	notify(player, rar.Name .. "の卵から " .. name .. " が生まれた！ +" .. formatNumber(income) .. "/秒")
+	discover(player, st, pet)
 end
 
 --------------------------------------------------------------------------
@@ -1136,12 +1197,38 @@ local function onPlayerAdded(player)
 		lastShove = 0,
 		stunnedUntil = 0,
 		lockCooldownEnd = 0,
+		index = {},
+		usedCodes = {},
 	}
 	if type(data.eggs) == "table" then
 		for i = 1, st.slots do
 			st.items[i] = validItem(data.eggs[i])
 		end
 	end
+	if type(data.index) == "table" then
+		for _, key in ipairs(data.index) do
+			local r, sIdx = string.match(tostring(key), "^(%d+)_(%d+)$")
+			r, sIdx = tonumber(r), tonumber(sIdx)
+			if r and sIdx and Config.Species[r] and Config.Species[r][sIdx] then
+				st.index[key] = true
+			end
+		end
+	end
+	if type(data.usedCodes) == "table" then
+		for k, v in pairs(data.usedCodes) do
+			if v == true and type(k) == "string" then
+				st.usedCodes[k] = true
+			end
+		end
+	end
+	-- 台にいる生き物もインデックスに登録
+	for i = 1, st.slots do
+		local it = st.items[i]
+		if it and it.k == "pet" then
+			st.index[it.r .. "_" .. it.s] = true
+		end
+	end
+	syncIndex(player, st)
 
 	local leaderstats = Instance.new("Folder")
 	leaderstats.Name = "leaderstats"
@@ -1256,22 +1343,43 @@ end)
 
 -- コード入力（コードはサーバーだけに置くので、プレイヤーからは見えない）
 -- 何回でも使える。卵は空いている台に置かれる。ADMIN_ONLY_CODES に入れたコードは管理者だけ。
+-- 810の卵をわたす。わたせたら true
+local function give810Egg(player, st)
+	local r = #Config.Rarities -- いちばん強いレア度（810）
+	local egg = { k = "egg", r = r, s = math.random(1, eggStyleCount(r)) }
+	for i = 1, st.slots do
+		if st.items[i] == nil and not st.base.busy[i] then
+			st.items[i] = egg
+			refreshSlot(st.base, i)
+			return true, "コード成功！" .. Config.Rarities[r].Name .. "の卵を台に置いたよ"
+		end
+	end
+	if not st.carrying then
+		startCarry(player, egg, nil)
+		return true, "コード成功！台がいっぱいなので、" .. Config.Rarities[r].Name .. "の卵を持たせたよ"
+	end
+	return false, "台がいっぱい！台を空けてからもう一度入力してね"
+end
+
 local CODES = {
 	["114514810"] = function(player, st)
-		local r = #Config.Rarities -- いちばん強いレア度（810）
-		local egg = { k = "egg", r = r, s = math.random(1, eggStyleCount(r)) }
-		for i = 1, st.slots do
-			if st.items[i] == nil and not st.base.busy[i] then
-				st.items[i] = egg
-				refreshSlot(st.base, i)
-				return "コード成功！" .. Config.Rarities[r].Name .. "の卵を台に置いたよ"
-			end
+		local _, message = give810Egg(player, st)
+		return message
+	end,
+	-- インデックスを全部そろえた人だけ、1人1回だけ使える
+	[INDEX_REWARD_CODE] = function(player, st)
+		if st.usedCodes[INDEX_REWARD_CODE] then
+			return "このコードはもう使ったよ（1回だけ）"
 		end
-		if not st.carrying then
-			startCarry(player, egg, nil)
-			return "コード成功！台がいっぱいなので、" .. Config.Rarities[r].Name .. "の卵を持たせたよ"
+		if not isIndexComplete(st) then
+			return "インデックスを全部そろえると使えるコードだよ（今 " .. indexCount(st) .. "/" .. INDEX_TOTAL .. "）"
 		end
-		return "台がいっぱい！台を空けてからもう一度入力してね"
+		local ok, message = give810Egg(player, st)
+		if ok then
+			st.usedCodes[INDEX_REWARD_CODE] = true
+			task.spawn(saveData, player, st)
+		end
+		return message
 	end,
 	-- 飛べるようになる（この回のプレイ中ずっと）
 	["うんこです"] = function(player, st)
@@ -1325,7 +1433,7 @@ RedeemCode.OnServerEvent:Connect(function(player, code)
 	end
 	st.lastCode = t
 	local cleaned = string.gsub(string.gsub(code, "%s", ""), "　", "")
-	local reward = CODES[cleaned]
+	local reward = CODES[cleaned] or CODES[string.lower(cleaned)]
 	if reward and ADMIN_ONLY_CODES[cleaned] and not isAdmin(player) then
 		notify(player, "このコードは管理者しか使えません")
 		return
@@ -1420,6 +1528,7 @@ task.spawn(function()
 						notify(player, "卵を置いた！台でEを長押しすると開けられるよ")
 					else
 						notify(player, itemInfo(item) .. "を置いた！")
+						discover(player, st, item)
 					end
 				elseif t - (st.fullWarned or 0) > 3 then
 					st.fullWarned = t
