@@ -108,6 +108,11 @@ Config.Rarities = {
 }
 Config.Rarity810 = 7 -- 「810」のレア度の番号（コード 114514810・1日1個のルールで使う）
 
+-- ペット小屋（ベースの裏にある屋根なしの大きい檻。生き物を放し飼いできる）
+Config.CageSize = 40           -- 檻の広さ
+Config.CageMax = 15            -- 入れられる生き物の数
+Config.CagePetSpeed = 4        -- 生き物が歩く速さ
+
 -- OGイベント（マップの端のボタンを管理者が押すと始まる）
 Config.OGEventDuration = 600   -- 10分間
 Config.OGEggScale = 10         -- 卵畑に出るOGの卵の大きさ（ふつうの卵の何倍か。100にするとマップより大きくなる）
@@ -167,7 +172,9 @@ Config.Species = {
 	},
 	[8] = { -- OG（限定）
 		-- いちごのからだのゾウ。虹色に光り、全部の異変（炎・キラキラ・光の輪・王冠・星・オーラ）がついている
-		{ Name = "いちごゾウ", Body = "bean", Color = rgb(235, 40, 60), Accent = rgb(255, 230, 90), Features = { "elephant", "strawberry", "halo", "crown", "stars", "fire", "bigWings" }, Rainbow = true, Scale = 1.8, Income = 10000000000, Weight = 1 },
+		{ Name = "いちごゾウ", Body = "bean", Color = rgb(235, 40, 60), Accent = rgb(255, 230, 90), Features = { "elephant", "strawberry", "halo", "crown", "stars", "fire", "bigWings" }, Rainbow = true, Scale = 3.5, Income = 10000000000, Weight = 50 },
+		-- ネコのお顔のフクロウ
+		{ Name = "ミャウル", Body = "ball", Color = rgb(200, 200, 215), Accent = rgb(255, 255, 255), Features = { "owlFace", "ears", "beak", "bigWings", "feet", "halo", "crown", "stars", "fire" }, Rainbow = true, Scale = 3.5, Income = 10000000000, Weight = 50 },
 	},
 }
 

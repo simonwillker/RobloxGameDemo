@@ -131,6 +131,7 @@ local function saveData(player, st)
 		eggs = items,
 		index = index,
 		usedCodes = st.usedCodes or {},
+		cage = st.cage or {},
 	}
 	local ok, err = pcall(function()
 		store:SetAsync("p_" .. player.UserId, data)
@@ -502,6 +503,13 @@ local function buildCreature(r, s)
 			table.insert(bodyParts, ball(model, t[1], P(0, t[2], t[3]), main, mat))
 		end
 	end
+	-- フクロウのお顔（目のまわりの白い丸）
+	if feats.owlFace then
+		ellipsoid(model, Vector3.new(1.7, 1.1, 0.3), CF(0, d.eyeY, d.eyeZ + 0.1), accent)
+		for _, sx in ipairs({ -1, 1 }) do
+			block(model, Vector3.new(0.5, 0.12, 0.12), CF(sx * 0.4, d.eyeY + 0.45, d.eyeZ + 0.05) * CFrame.Angles(0, 0, sx * math.rad(20)), DARK)
+		end
+	end
 	-- いちご：つぶつぶとへたの葉っぱ
 	if feats.strawberry then
 		local rng = Random.new(810)
@@ -747,6 +755,23 @@ local bases = {}
 local startCarry
 local refreshSlot
 local hatchSlot
+local moveToCage
+
+-- 管理者 = ゲームの持ち主（グループのゲームならグループのオーナー）＋ EggConfig.AdminUserIds の人
+local function isAdmin(player)
+	for _, id in ipairs(Config.AdminUserIds) do
+		if player.UserId == id then
+			return true
+		end
+	end
+	if game.CreatorType == Enum.CreatorType.User then
+		return player.UserId == game.CreatorId
+	end
+	local ok, rank = pcall(function()
+		return player:GetRankInGroup(game.CreatorId)
+	end)
+	return ok and rank == 255
+end
 
 local function onSlotPrompt(base, slot, player)
 	local owner = base.owner
@@ -959,8 +984,81 @@ local function buildBase(index)
 		prompt.Triggered:Connect(function(player)
 			onSlotPrompt(base, i, player)
 		end)
+		-- 自分の生き物を檻に入れる（持ち主にだけ見える。R キー）
+		local cagePrompt = Instance.new("ProximityPrompt")
+		cagePrompt.Name = "CagePrompt"
+		cagePrompt.ActionText = "檻に入れる"
+		cagePrompt.KeyboardKeyCode = Enum.KeyCode.R
+		cagePrompt.GamepadKeyCode = Enum.KeyCode.ButtonY
+		cagePrompt.HoldDuration = 0.3
+		cagePrompt.MaxActivationDistance = 8
+		cagePrompt.RequiresLineOfSight = false
+		cagePrompt.UIOffset = Vector2.new(0, 90)
+		cagePrompt.Enabled = false
+		cagePrompt:SetAttribute("CagePrompt", true)
+		cagePrompt:SetAttribute("OwnerUserId", 0)
+		cagePrompt.Parent = ped
+		cagePrompt.Triggered:Connect(function(player)
+			moveToCage(base, i, player)
+		end)
 		base.slotParts[i] = ped
 	end
+
+	-- ペット小屋（ベースの裏。屋根なしの大きい檻。入口はベース側のまんなか）
+	local C = Config.CageSize
+	local cageCF = cf * CFrame.new(0, 0, HALF + 8 + C / 2)
+	base.cageCF = cageCF
+	base.cagePets = {}
+	base.cageModel = Instance.new("Model")
+	base.cageModel.Name = "Cage"
+	base.cageModel.Parent = model
+	makePart({
+		Name = "CageFloor",
+		Size = Vector3.new(C, 1, C),
+		CFrame = cageCF * CFrame.new(0, 0.5, 0),
+		Color = Color3.fromRGB(110, 190, 90),
+		Material = Enum.Material.Grass,
+		Parent = model,
+	})
+	local barColor = Color3.fromRGB(70, 70, 80)
+	local GATE = 8
+	for _, side in ipairs({ "front", "back", "left", "right" }) do
+		for k = 0, math.floor(C / 2.5) do
+			local u = -C / 2 + k * 2.5
+			if not (side == "front" and math.abs(u) < GATE / 2) then
+				local x, z
+				if side == "front" then
+					x, z = u, -C / 2
+				elseif side == "back" then
+					x, z = u, C / 2
+				elseif side == "left" then
+					x, z = -C / 2, u
+				else
+					x, z = C / 2, u
+				end
+				makePart({ Name = "CageBar", Size = Vector3.new(0.4, 8, 0.4), CFrame = cageCF * CFrame.new(x, 5, z), Color = barColor, Material = Enum.Material.Metal, Parent = model })
+			end
+		end
+	end
+	-- 上の手すり（屋根はなし）
+	for _, r in ipairs({
+		{ Vector3.new(C, 0.5, 0.5), CFrame.new(0, 9, C / 2) },
+		{ Vector3.new(0.5, 0.5, C), CFrame.new(-C / 2, 9, 0) },
+		{ Vector3.new(0.5, 0.5, C), CFrame.new(C / 2, 9, 0) },
+		{ Vector3.new((C - GATE) / 2, 0.5, 0.5), CFrame.new(-(GATE + C) / 4, 9, -C / 2) },
+		{ Vector3.new((C - GATE) / 2, 0.5, 0.5), CFrame.new((GATE + C) / 4, 9, -C / 2) },
+	}) do
+		makePart({ Name = "CageRail", Size = r[1], CFrame = cageCF * r[2], Color = barColor, Material = Enum.Material.Metal, Parent = model })
+	end
+	local cageSign = makePart({
+		Name = "CageSign",
+		Size = Vector3.new(1, 1, 1),
+		CFrame = cageCF * CFrame.new(0, 1, -C / 2),
+		Transparency = 1,
+		CanCollide = false,
+		Parent = model,
+	})
+	base.cageLabel = makeLabel(cageSign, "ペット小屋", WHITE, UDim2.fromOffset(200, 40), 11, 200)
 
 	return base
 end
@@ -1002,7 +1100,150 @@ function refreshSlot(base, i)
 	prompt.Enabled = item ~= nil and not base.busy[i]
 	prompt.ObjectText = item and (itemInfo(item)) or ""
 	prompt:SetAttribute("ItemKind", item and item.k or "")
+	ped.CagePrompt.Enabled = item ~= nil and item.k == "pet" and not base.busy[i]
 end
+
+--------------------------------------------------------------------------
+-- ペット小屋（檻）：生き物が中を歩きまわる。檻の生き物もお金を生む。
+-- 持ち主は E で台に戻せる。ほかの人は E 長押しで盗める（ロック中は盗めない）。
+--------------------------------------------------------------------------
+local onCagePrompt
+local function refreshCage(base)
+	for _, e in ipairs(base.cagePets) do
+		e.model:Destroy()
+	end
+	base.cagePets = {}
+	local st = base.owner and states[base.owner]
+	if not st then
+		base.cageLabel.Text = "ペット小屋"
+		return
+	end
+	local half = Config.CageSize / 2 - 4
+	for _, item in ipairs(st.cage) do
+		local model, root = buildItem(item)
+		local pos = Vector3.new(math.random() * 2 * half - half, 0, math.random() * 2 * half - half)
+		local entry = { item = item, model = model, pos = pos, target = pos, yaw = math.random() * math.pi * 2, wait = math.random() * 2, phase = math.random() * 6 }
+		placeItem(model, item, base.cageCF * CFrame.new(pos.X, 1, pos.Z) * CFrame.Angles(0, entry.yaw, 0))
+		local sp = Config.Species[item.r][item.s]
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "StealPrompt"
+		prompt.ActionText = "盗む"
+		prompt.ObjectText = (itemInfo(item))
+		prompt.HoldDuration = Config.StealHoldTime
+		prompt.MaxActivationDistance = 8 + 2 * (sp.Scale or 1)
+		prompt.RequiresLineOfSight = false
+		prompt:SetAttribute("StealPrompt", true)
+		prompt:SetAttribute("OwnerUserId", base.owner.UserId)
+		prompt:SetAttribute("ItemKind", "pet")
+		prompt:SetAttribute("Cage", true)
+		prompt.Parent = root
+		prompt.Triggered:Connect(function(player)
+			onCagePrompt(base, item, player)
+		end)
+		model.Parent = base.cageModel
+		table.insert(base.cagePets, entry)
+	end
+	base.cageLabel.Text = base.owner.DisplayName .. " のペット小屋 " .. #st.cage .. "/" .. Config.CageMax
+end
+
+local function freeSlot(st)
+	for i = 1, st.slots do
+		if st.items[i] == nil and not st.base.busy[i] then
+			return i
+		end
+	end
+	return nil
+end
+
+function moveToCage(base, slot, player)
+	local st = states[player]
+	if not st or base.owner ~= player or base.busy[slot] then
+		return
+	end
+	local item = st.items[slot]
+	if not item or item.k ~= "pet" then
+		return
+	end
+	if #st.cage >= Config.CageMax then
+		notify(player, "檻がいっぱい！（" .. Config.CageMax .. "匹まで）")
+		return
+	end
+	st.items[slot] = nil
+	table.insert(st.cage, item)
+	refreshSlot(base, slot)
+	refreshCage(base)
+	notify(player, itemInfo(item) .. "を檻に入れた！")
+end
+
+function onCagePrompt(base, item, player)
+	local owner = base.owner
+	local ownerState = owner and states[owner]
+	local st = states[player]
+	if not ownerState or not st then
+		return
+	end
+	local idx = table.find(ownerState.cage, item)
+	if not idx then
+		return
+	end
+	local name = itemInfo(item)
+	if player == owner then
+		-- 台に戻す
+		local free = freeSlot(st)
+		if not free then
+			notify(player, "台がいっぱい！")
+			return
+		end
+		table.remove(st.cage, idx)
+		st.items[free] = item
+		refreshSlot(base, free)
+		refreshCage(base)
+		notify(player, name .. "を台に戻した")
+		return
+	end
+	if now() < base.lockedUntil then
+		notify(player, "このベースはロック中！")
+		return
+	end
+	if st.carrying then
+		notify(player, "1個しか持てない！")
+		return
+	end
+	table.remove(ownerState.cage, idx)
+	refreshCage(base)
+	startCarry(player, item, { owner = owner, cage = true })
+	notify(player, name .. "を盗んだ！自分のベースへ運ぼう")
+	notify(owner, player.DisplayName .. " に檻の " .. name .. "を盗まれた！押して取り返そう [F]")
+end
+
+-- 檻の生き物を歩かせる
+task.spawn(function()
+	local half = Config.CageSize / 2 - 4
+	while true do
+		local dt = task.wait(0.05)
+		for _, base in ipairs(bases) do
+			for _, e in ipairs(base.cagePets) do
+				if e.model.Parent then
+					local hop = 0
+					if e.wait > 0 then
+						e.wait -= dt
+					else
+						local d = e.target - e.pos
+						if d.Magnitude < 0.3 then
+							e.wait = 1 + math.random() * 3
+							e.target = Vector3.new(math.random() * 2 * half - half, 0, math.random() * 2 * half - half)
+						else
+							e.pos += d.Unit * math.min(d.Magnitude, Config.CagePetSpeed * dt)
+							e.yaw = math.atan2(-d.X, -d.Z)
+							hop = math.abs(math.sin(os.clock() * 8 + e.phase)) * 0.4
+						end
+					end
+					placeItem(e.model, e.item, base.cageCF * CFrame.new(e.pos.X, 1 + hop, e.pos.Z) * CFrame.Angles(0, e.yaw, 0))
+				end
+			end
+		end
+	end
+end)
 
 local function refreshBase(base)
 	for i = 1, Config.MaxSlots do
@@ -1012,7 +1253,9 @@ local function refreshBase(base)
 	local ownerId = base.owner and base.owner.UserId or 0
 	for _, ped in ipairs(base.slotParts) do
 		ped.StealPrompt:SetAttribute("OwnerUserId", ownerId)
+		ped.CagePrompt:SetAttribute("OwnerUserId", ownerId)
 	end
+	refreshCage(base)
 end
 
 --------------------------------------------------------------------------
@@ -1287,7 +1530,9 @@ function startCarry(player, item, from)
 	if head then
 		local model, root = buildItem(item)
 		if item.k == "pet" then
-			model:ScaleTo(model:GetScale() * 0.7)
+			-- 大きい生き物は頭の上で大きすぎないように小さくする
+			local sp = Config.Species[item.r][item.s]
+			model:ScaleTo(model:GetScale() * 0.7 * math.min(1, 1.6 / (sp.Scale or 1)))
 		end
 		placeItem(model, item, head.CFrame * CFrame.new(0, head.Size.Y / 2 + 0.1, 0))
 		for _, p in ipairs(model:GetDescendants()) do
@@ -1350,7 +1595,14 @@ local function dropCarry(player, byChoice)
 	local from = c.from
 	if not byChoice and from and from.owner.Parent then
 		local ownerState = states[from.owner]
-		if ownerState and ownerState.items[from.slot] == nil and from.slot <= ownerState.slots then
+		if ownerState and from.cage then
+			if #ownerState.cage < Config.CageMax then
+				table.insert(ownerState.cage, c.item)
+				refreshCage(ownerState.base)
+				notify(from.owner, itemInfo(c.item) .. "を取り返した！")
+				return
+			end
+		elseif ownerState and ownerState.items[from.slot] == nil and from.slot <= ownerState.slots then
 			ownerState.items[from.slot] = c.item
 			refreshSlot(ownerState.base, from.slot)
 			notify(from.owner, itemInfo(c.item) .. "を取り返した！")
@@ -1399,7 +1651,7 @@ local function onPlayerAdded(player)
 		base = base,
 		cash = tonumber(data.cash) or Config.StartCash,
 		slots = math.clamp(tonumber(data.slots) or Config.StartSlots, Config.StartSlots, Config.MaxSlots),
-		speedLevel = math.clamp(tonumber(data.speedLevel) or 0, 0, Config.MaxSpeedLevel),
+		speedLevel = math.clamp(tonumber(data.speedLevel) or 0, 0, isAdmin(player) and math.huge or Config.MaxSpeedLevel),
 		items = {},
 		carrying = nil,
 		carryModel = nil,
@@ -1408,6 +1660,7 @@ local function onPlayerAdded(player)
 		lockCooldownEnd = 0,
 		index = {},
 		usedCodes = {},
+		cage = {},
 	}
 	if type(data.eggs) == "table" then
 		for i = 1, st.slots do
@@ -1430,6 +1683,19 @@ local function onPlayerAdded(player)
 			end
 		end
 	end
+	if type(data.cage) == "table" then
+		for _, v in ipairs(data.cage) do
+			local it = validItem(v)
+			if it and it.k == "pet" and #st.cage < Config.CageMax then
+				table.insert(st.cage, it)
+			end
+		end
+	end
+	for _, it in ipairs(st.cage) do
+		if not Config.Rarities[it.r].Limited then
+			st.index[it.r .. "_" .. it.s] = true
+		end
+	end
 	-- 台にいる生き物もインデックスに登録
 	for i = 1, st.slots do
 		local it = st.items[i]
@@ -1450,6 +1716,7 @@ local function onPlayerAdded(player)
 
 	player:SetAttribute("Slots", st.slots)
 	player:SetAttribute("SpeedLevel", st.speedLevel)
+	player:SetAttribute("IsAdmin", isAdmin(player)) -- 管理者はスピードの上限なし
 	player:SetAttribute("LockedUntil", 0)
 	player:SetAttribute("LockCooldownEnd", 0)
 
@@ -1517,7 +1784,7 @@ BuyUpgrade.OnServerEvent:Connect(function(player, kind)
 		refreshSlot(st.base, st.slots)
 		notify(player, "台が増えた！")
 	elseif kind == "Speed" then
-		if st.speedLevel >= Config.MaxSpeedLevel then
+		if st.speedLevel >= Config.MaxSpeedLevel and not isAdmin(player) then
 			return
 		end
 		local cost = Config.SpeedCost(st.speedLevel)
@@ -1615,21 +1882,6 @@ local ADMIN_ONLY_CODES = {
 	["うんこです"] = true,
 }
 
--- 管理者 = ゲームの持ち主（グループのゲームならグループのオーナー）＋ EggConfig.AdminUserIds の人
-local function isAdmin(player)
-	for _, id in ipairs(Config.AdminUserIds) do
-		if player.UserId == id then
-			return true
-		end
-	end
-	if game.CreatorType == Enum.CreatorType.User then
-		return player.UserId == game.CreatorId
-	end
-	local ok, rank = pcall(function()
-		return player:GetRankInGroup(game.CreatorId)
-	end)
-	return ok and rank == 255
-end
 
 RedeemCode.OnServerEvent:Connect(function(player, code)
 	local st = states[player]
@@ -1773,6 +2025,10 @@ task.spawn(function()
 					local _, inc = itemInfo(item)
 					income += inc
 				end
+			end
+			for _, item in ipairs(st.cage) do
+				local _, inc = itemInfo(item)
+				income += inc
 			end
 			income = math.floor(income * (st.incomeMultiplier or 1) * weather.incomeMult)
 			if income > 0 then

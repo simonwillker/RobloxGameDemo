@@ -641,7 +641,7 @@ end)
 --------------------------------------------------------------------------
 local stealPrompts = {}
 local function track(obj)
-	if obj:IsA("ProximityPrompt") and obj:GetAttribute("StealPrompt") then
+	if obj:IsA("ProximityPrompt") and (obj:GetAttribute("StealPrompt") or obj:GetAttribute("CagePrompt")) then
 		table.insert(stealPrompts, obj)
 	end
 end
@@ -670,7 +670,7 @@ while true do
 	end
 
 	local level = player:GetAttribute("SpeedLevel") or 0
-	if level >= Config.MaxSpeedLevel then
+	if level >= Config.MaxSpeedLevel and not player:GetAttribute("IsAdmin") then
 		speedButton.Text = "スピード MAX"
 	else
 		speedButton.Text = "スピードUP Lv" .. level .. "\n$" .. formatNumber(Config.SpeedCost(level))
@@ -687,9 +687,19 @@ while true do
 		lockButton.Text = "ベースをロック\n(" .. Config.LockDuration .. "秒)"
 	end
 
+	for i = #stealPrompts, 1, -1 do
+		if not stealPrompts[i].Parent then
+			table.remove(stealPrompts, i) -- 消えたもの（檻の生き物など）
+		end
+	end
 	for _, prompt in ipairs(stealPrompts) do
-		if prompt:GetAttribute("OwnerUserId") ~= player.UserId then
+		if prompt:GetAttribute("CagePrompt") then
+			-- 「檻に入れる」は持ち主にだけ見せる
+			prompt.Style = prompt:GetAttribute("OwnerUserId") == player.UserId and Enum.ProximityPromptStyle.Default or Enum.ProximityPromptStyle.Custom
+		elseif prompt:GetAttribute("OwnerUserId") ~= player.UserId then
 			prompt.ActionText = "盗む"
+		elseif prompt:GetAttribute("Cage") then
+			prompt.ActionText = "台に戻す"
 		elseif prompt:GetAttribute("ItemKind") == "egg" then
 			prompt.ActionText = "開ける"
 		else
