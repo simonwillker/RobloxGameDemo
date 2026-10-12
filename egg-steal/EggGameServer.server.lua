@@ -1834,6 +1834,7 @@ local function runEvent()
 	end
 	local title = (anomaly and "【異変】" or "") .. ev.Icon .. ev.Name .. "イベント"
 	workspace:SetAttribute("WeatherEvent", title)
+	workspace:SetAttribute("EventEndsAt", workspace:GetServerTimeNow() + Config.EventDuration)
 	notifyAll(title .. "スタート！" .. ev.Text .. (anomaly and "（異変で効果がパワーアップ！）" or ""))
 
 	task.wait(Config.EventDuration)
@@ -1852,6 +1853,7 @@ local function runEvent()
 		end
 	end
 	workspace:SetAttribute("WeatherEvent", nil)
+	workspace:SetAttribute("EventEndsAt", nil)
 	notifyAll(title .. "がおわった")
 	currentEvent = nil
 	return true
@@ -1859,6 +1861,8 @@ end
 
 task.spawn(function()
 	while true do
+		-- 画面のカウントダウン用に、次のイベントの時刻を知らせる
+		workspace:SetAttribute("NextEventAt", workspace:GetServerTimeNow() + Config.EventInterval)
 		task.wait(Config.EventInterval)
 		runEvent()
 	end

@@ -117,6 +117,51 @@ local indexButton = makeButton(Color3.fromRGB(150, 90, 220))
 indexButton.Text = "インデックス"
 panel.Size = UDim2.fromOffset(130, 250)
 
+-- 次の天気イベントまでの時間（画面の上）
+local eventLabel = Instance.new("TextLabel")
+eventLabel.AnchorPoint = Vector2.new(0.5, 0)
+eventLabel.Position = UDim2.new(0.5, 0, 0, 8)
+eventLabel.Size = UDim2.fromOffset(280, 26)
+eventLabel.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+eventLabel.BackgroundTransparency = 0.35
+eventLabel.Font = Enum.Font.GothamBold
+eventLabel.TextScaled = true
+eventLabel.TextColor3 = Color3.new(1, 1, 1)
+eventLabel.Text = ""
+eventLabel.Parent = gui
+Instance.new("UICorner", eventLabel).CornerRadius = UDim.new(0, 8)
+local eventPad = Instance.new("UIPadding")
+eventPad.PaddingLeft = UDim.new(0, 8)
+eventPad.PaddingRight = UDim.new(0, 8)
+eventPad.PaddingTop = UDim.new(0, 3)
+eventPad.PaddingBottom = UDim.new(0, 3)
+eventPad.Parent = eventLabel
+
+local function clockText(seconds)
+	seconds = math.max(0, math.floor(seconds))
+	return string.format("%d:%02d", math.floor(seconds / 60), seconds % 60)
+end
+task.spawn(function()
+	while true do
+		local t = workspace:GetServerTimeNow()
+		local current = workspace:GetAttribute("WeatherEvent")
+		local endsAt = workspace:GetAttribute("EventEndsAt")
+		local nextAt = workspace:GetAttribute("NextEventAt")
+		if current and endsAt then
+			eventLabel.Text = current .. "中！ あと " .. clockText(endsAt - t)
+			eventLabel.TextColor3 = Color3.fromRGB(255, 220, 80)
+			eventLabel.Visible = true
+		elseif nextAt then
+			eventLabel.Text = "次のイベントまで " .. clockText(nextAt - t)
+			eventLabel.TextColor3 = Color3.new(1, 1, 1)
+			eventLabel.Visible = true
+		else
+			eventLabel.Visible = false
+		end
+		task.wait(0.25)
+	end
+end)
+
 local notice = Instance.new("TextLabel")
 notice.AnchorPoint = Vector2.new(0.5, 0)
 notice.Position = UDim2.new(0.5, 0, 0, 70)
