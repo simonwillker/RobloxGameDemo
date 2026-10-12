@@ -104,10 +104,17 @@ Config.Rarities = {
 -- Lift = 体を浮かせる高さ、Scale = 大きさ、Income = 1秒の収入（卵のときより高い）
 local GLASS = Enum.Material.Glass
 Config.Species = {
-	[1] = { -- コモン
-		{ Name = "ピヨまる", Body = "ball", Color = rgb(255, 225, 80), Accent = rgb(255, 150, 40), Features = { "beak", "wings", "feet", "blush" }, Income = 3, Weight = 40 },
-		{ Name = "モチうさ", Body = "bean", Color = rgb(250, 250, 250), Accent = rgb(255, 170, 200), Features = { "longEars", "tail", "blush" }, Income = 4, Weight = 35 },
-		{ Name = "コロイシ", Body = "block", Color = rgb(150, 150, 160), Accent = rgb(110, 200, 90), Features = { "legs", "leaf" }, Material = Enum.Material.Slate, Income = 5, Weight = 25 },
+	[1] = { -- コモン（10種類。稼ぐ量はみんな同じ。いちばんレアなのは「コリュウ」）
+		{ Name = "ピヨまる", Body = "ball", Color = rgb(255, 225, 80), Accent = rgb(255, 150, 40), Features = { "beak", "wings", "feet", "blush" }, Income = 4, Weight = 11 },
+		{ Name = "モチうさ", Body = "bean", Color = rgb(250, 250, 250), Accent = rgb(255, 170, 200), Features = { "longEars", "tail", "blush" }, Income = 4, Weight = 11 },
+		{ Name = "コロガメ", Body = "block", Color = rgb(110, 180, 90), Accent = rgb(140, 100, 60), Features = { "legs", "tail", "spikes" }, Income = 4, Weight = 11 },
+		{ Name = "ミケネコ", Body = "ball", Color = rgb(255, 170, 90), Accent = rgb(90, 60, 40), Features = { "ears", "tail", "blush" }, Income = 4, Weight = 11 },
+		{ Name = "ポチイヌ", Body = "bean", Color = rgb(200, 150, 100), Accent = rgb(255, 255, 255), Features = { "ears", "tail", "legs" }, Income = 4, Weight = 11 },
+		{ Name = "コグマ", Body = "block", Color = rgb(140, 95, 60), Accent = rgb(230, 190, 140), Features = { "roundEars", "legs", "blush" }, Income = 4, Weight = 11 },
+		{ Name = "ペンペン", Body = "bean", Color = rgb(40, 45, 60), Accent = rgb(255, 180, 40), Features = { "beak", "wings", "feet" }, Income = 4, Weight = 11 },
+		{ Name = "ブーブー", Body = "ball", Color = rgb(255, 175, 190), Accent = rgb(255, 120, 150), Features = { "roundEars", "feet", "tail", "blush" }, Income = 4, Weight = 11 },
+		{ Name = "ケロケロ", Body = "ball", Color = rgb(120, 220, 80), Accent = rgb(255, 255, 255), Features = { "feet", "blush", "antenna" }, Income = 4, Weight = 11 },
+		{ Name = "コリュウ", Body = "worm", Color = rgb(220, 50, 50), Accent = rgb(255, 210, 60), Features = { "wings", "horn", "spikes", "legs", "tail", "fire" }, Scale = 1.1, Income = 4, Weight = 1 },
 	},
 	[2] = { -- 普通
 		{ Name = "プルスライム", Body = "bean", Color = rgb(80, 200, 255), Accent = rgb(255, 255, 255), Features = { "antenna", "blush" }, Material = GLASS, Transparency = 0.25, Income = 9, Weight = 40 },
