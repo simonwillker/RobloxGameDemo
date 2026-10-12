@@ -34,7 +34,7 @@ gui.Parent = player:WaitForChild("PlayerGui")
 local cashLabel = Instance.new("TextLabel")
 cashLabel.AnchorPoint = Vector2.new(0, 1)
 cashLabel.Position = UDim2.new(0, 16, 1, -16)
-cashLabel.Size = UDim2.fromOffset(240, 50)
+cashLabel.Size = UDim2.fromOffset(160, 34)
 cashLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 cashLabel.BackgroundTransparency = 0.2
 cashLabel.Font = Enum.Font.GothamBold
@@ -47,13 +47,13 @@ Instance.new("UICorner", cashLabel).CornerRadius = UDim.new(0, 10)
 -- コード入力欄（お金の上）
 local codeFrame = Instance.new("Frame")
 codeFrame.AnchorPoint = Vector2.new(0, 1)
-codeFrame.Position = UDim2.new(0, 16, 1, -76)
-codeFrame.Size = UDim2.fromOffset(240, 40)
+codeFrame.Position = UDim2.new(0, 16, 1, -56)
+codeFrame.Size = UDim2.fromOffset(160, 28)
 codeFrame.BackgroundTransparency = 1
 codeFrame.Parent = gui
 
 local codeBox = Instance.new("TextBox")
-codeBox.Size = UDim2.new(1, -76, 1, 0)
+codeBox.Size = UDim2.new(1, -54, 1, 0)
 codeBox.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 codeBox.PlaceholderText = "コードを入力"
 codeBox.Text = ""
@@ -67,7 +67,7 @@ Instance.new("UICorner", codeBox).CornerRadius = UDim.new(0, 8)
 local codeButton = Instance.new("TextButton")
 codeButton.AnchorPoint = Vector2.new(1, 0)
 codeButton.Position = UDim2.new(1, 0, 0, 0)
-codeButton.Size = UDim2.new(0, 70, 1, 0)
+codeButton.Size = UDim2.new(0, 50, 1, 0)
 codeButton.BackgroundColor3 = Color3.fromRGB(255, 170, 40)
 codeButton.Font = Enum.Font.GothamBold
 codeButton.TextScaled = true
@@ -79,16 +79,16 @@ Instance.new("UICorner", codeButton).CornerRadius = UDim.new(0, 8)
 local panel = Instance.new("Frame")
 panel.AnchorPoint = Vector2.new(1, 0.5)
 panel.Position = UDim2.new(1, -16, 0.5, 0)
-panel.Size = UDim2.fromOffset(200, 260)
+panel.Size = UDim2.fromOffset(130, 200)
 panel.BackgroundTransparency = 1
 panel.Parent = gui
 local layout = Instance.new("UIListLayout")
-layout.Padding = UDim.new(0, 8)
+layout.Padding = UDim.new(0, 5)
 layout.Parent = panel
 
 local function makeButton(color)
 	local b = Instance.new("TextButton")
-	b.Size = UDim2.new(1, 0, 0, 56)
+	b.Size = UDim2.new(1, 0, 0, 36)
 	b.BackgroundColor3 = color
 	b.Font = Enum.Font.GothamBold
 	b.TextScaled = true
@@ -99,8 +99,8 @@ local function makeButton(color)
 	local pad = Instance.new("UIPadding")
 	pad.PaddingLeft = UDim.new(0, 6)
 	pad.PaddingRight = UDim.new(0, 6)
-	pad.PaddingTop = UDim.new(0, 4)
-	pad.PaddingBottom = UDim.new(0, 4)
+	pad.PaddingTop = UDim.new(0, 3)
+	pad.PaddingBottom = UDim.new(0, 3)
 	pad.Parent = b
 	return b
 end
@@ -113,12 +113,12 @@ shoveButton.Text = "押す [F]"
 local dropButton = makeButton(Color3.fromRGB(120, 120, 140))
 dropButton.Text = "落とす [G]"
 dropButton.Visible = false -- 何か持っているときだけ表示
-panel.Size = UDim2.fromOffset(200, 330)
+panel.Size = UDim2.fromOffset(130, 210)
 
 local notice = Instance.new("TextLabel")
 notice.AnchorPoint = Vector2.new(0.5, 0)
 notice.Position = UDim2.new(0.5, 0, 0, 70)
-notice.Size = UDim2.fromOffset(520, 44)
+notice.Size = UDim2.fromOffset(400, 34)
 notice.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
 notice.BackgroundTransparency = 1
 notice.Font = Enum.Font.GothamBold
@@ -192,8 +192,8 @@ end)
 local crouchHeld = false
 local crouchButton = Instance.new("TextButton")
 crouchButton.AnchorPoint = Vector2.new(1, 1)
-crouchButton.Position = UDim2.new(1, -200, 1, -30)
-crouchButton.Size = UDim2.fromOffset(80, 80)
+crouchButton.Position = UDim2.new(1, -180, 1, -30)
+crouchButton.Size = UDim2.fromOffset(56, 56)
 crouchButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 crouchButton.BackgroundTransparency = 0.4
 crouchButton.Font = Enum.Font.GothamBold
@@ -215,7 +215,7 @@ crouchButton.InputEnded:Connect(function(input)
 end)
 
 -- スマホ用「飛ぶスティック」（飛んでいる間だけ左下に出る。指で押して動かした方向へ進む）
-local STICK_SIZE = 160
+local STICK_SIZE = 120
 local stickTouch = nil
 local stickMove = Vector3.zero
 local stickBase = Instance.new("TextButton")
@@ -232,7 +232,7 @@ Instance.new("UICorner", stickBase).CornerRadius = UDim.new(1, 0)
 local stickKnob = Instance.new("Frame")
 stickKnob.AnchorPoint = Vector2.new(0.5, 0.5)
 stickKnob.Position = UDim2.fromScale(0.5, 0.5)
-stickKnob.Size = UDim2.fromOffset(70, 70)
+stickKnob.Size = UDim2.fromOffset(50, 50)
 stickKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 stickKnob.BackgroundTransparency = 0.2
 stickKnob.Parent = stickBase
