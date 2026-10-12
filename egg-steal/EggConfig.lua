@@ -15,11 +15,11 @@ Config.StartSlots = 3          -- 最初に使える台の数
 Config.StartCash = 0
 Config.SlotCostBase = 50       -- 台を1つ増やす値段（増やすほど高くなる）
 Config.SlotCostGrowth = 1.8
-Config.MaxSpeedLevel = 5
+Config.MaxSpeedLevel = 28      -- 16 + 28 × 3 = 速さ100 が上限
 Config.BaseWalkSpeed = 16
 Config.SpeedPerLevel = 3       -- スピードUP 1回で増える速さ
 Config.SpeedCostBase = 75
-Config.SpeedCostGrowth = 2
+Config.SpeedCostGrowth = 1.35
 Config.SellMultiplier = 20     -- 生き物を売ると「1秒の収入 × この数」のお金になる
 
 -- どろぼう関係
@@ -39,6 +39,11 @@ Config.AdminUserIds = {}
 Config.FieldRadius = 30
 Config.FieldEggCount = 12      -- 畑に同時に出る卵の数
 Config.EggSpawnInterval = 3    -- 何秒ごとに卵が補充されるか
+
+-- 天気イベント（1時間に1回。雪・雨・雷・太陽からランダム。EventAnomalyChance の確率で「異変」になり効果が強くなる）
+Config.EventInterval = 3600    -- 何秒ごとにイベントが始まるか
+Config.EventDuration = 300     -- イベントが続く秒数
+Config.EventAnomalyChance = 0.1
 
 -- セーブ（Studioで使うには「APIサービスへのStudioアクセス」をON）
 Config.UseDataStore = true

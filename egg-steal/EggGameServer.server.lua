@@ -718,12 +718,93 @@ local function buildBase(index)
 	local function wall(size, offset)
 		return makePart({ Name = "Wall", Size = size, CFrame = cf * offset, Color = color, Parent = model })
 	end
-	wall(Vector3.new(S, 10, 1), CFrame.new(0, 6, HALF))
-	wall(Vector3.new(1, 10, S), CFrame.new(-HALF, 6, 0))
-	wall(Vector3.new(1, 10, S), CFrame.new(HALF, 6, 0))
+	-- 窓のある壁（横の長さ length、真ん中が wallCF。窓は windowCount 個、高さ4〜8の間）
+	local function windowWall(length, wallCF, windowCount)
+		local winW, winBottom, winTop = 6, 4, 8 -- 窓の幅・下の高さ・上の高さ（床からの高さ）
+		local function piece(width, height, x, y)
+			if width > 0.05 then
+				makePart({ Name = "Wall", Size = Vector3.new(width, height, 1), CFrame = wallCF * CFrame.new(x, y - 6, 0), Color = color, Parent = model })
+			end
+		end
+		piece(length, winBottom - 1, 0, (1 + winBottom) / 2) -- 窓の下
+		piece(length, 11 - winTop, 0, (winTop + 11) / 2) -- 窓の上
+		local gap = length / windowCount
+		local left = -length / 2
+		for w = 1, windowCount do
+			local cx = -length / 2 + gap * (w - 0.5)
+			piece(cx - winW / 2 - left, winTop - winBottom, (left + cx - winW / 2) / 2, (winBottom + winTop) / 2)
+			left = cx + winW / 2
+			-- ガラス
+			makePart({
+				Name = "Window",
+				Size = Vector3.new(winW, winTop - winBottom, 0.3),
+				CFrame = wallCF * CFrame.new(cx, (winBottom + winTop) / 2 - 6, 0),
+				Color = Color3.fromRGB(170, 220, 255),
+				Material = Enum.Material.Glass,
+				Transparency = 0.5,
+				Parent = model,
+			})
+			-- 窓わく（白）
+			makePart({
+				Name = "WindowSill",
+				Size = Vector3.new(winW + 1, 0.4, 1.6),
+				CFrame = wallCF * CFrame.new(cx, winBottom - 6 - 0.2, 0),
+				Color = WHITE,
+				Parent = model,
+			})
+			makePart({
+				Name = "WindowBar",
+				Size = Vector3.new(0.3, winTop - winBottom, 1.2),
+				CFrame = wallCF * CFrame.new(cx, (winBottom + winTop) / 2 - 6, 0),
+				Color = WHITE,
+				Parent = model,
+			})
+		end
+		piece(length / 2 - left, winTop - winBottom, (left + length / 2) / 2, (winBottom + winTop) / 2)
+	end
+	windowWall(S, cf * CFrame.new(0, 6, HALF), 3) -- 後ろの壁
+	windowWall(S, cf * CFrame.new(-HALF, 6, 0) * CFrame.Angles(0, math.pi / 2, 0), 3) -- 左の壁
+	windowWall(S, cf * CFrame.new(HALF, 6, 0) * CFrame.Angles(0, math.pi / 2, 0), 3) -- 右の壁
 	local frontWidth = HALF - 6
 	wall(Vector3.new(frontWidth, 10, 1), CFrame.new(-(6 + frontWidth / 2), 6, -HALF))
 	wall(Vector3.new(frontWidth, 10, 1), CFrame.new(6 + frontWidth / 2, 6, -HALF))
+	wall(Vector3.new(12, 3, 1), CFrame.new(0, 9.5, -HALF)) -- 入口の上
+
+	-- 屋根（天井の板＋三角屋根）
+	local roofColor = color:Lerp(Color3.new(0, 0, 0), 0.35)
+	makePart({
+		Name = "Ceiling",
+		Size = Vector3.new(S + 2, 1, S + 2),
+		CFrame = cf * CFrame.new(0, 11.5, 0),
+		Color = Color3.fromRGB(235, 235, 235),
+		Parent = model,
+	})
+	local pitch = math.rad(25)
+	local slope = (HALF + 2) / math.cos(pitch)
+	local rise = (HALF + 2) * math.tan(pitch)
+	for _, side in ipairs({ -1, 1 }) do
+		makePart({
+			Name = "Roof",
+			Size = Vector3.new(slope, 1, S + 4),
+			CFrame = cf * CFrame.new(side * (HALF + 2) / 2, 12 + rise / 2, 0) * CFrame.Angles(0, 0, -side * pitch),
+			Color = roofColor,
+			Material = Enum.Material.Slate,
+			Parent = model,
+		})
+	end
+	-- 屋根の三角の部分（前と後ろ）
+	for _, z in ipairs({ -HALF - 1, HALF + 1 }) do
+		for _, side in ipairs({ -1, 1 }) do
+			local wedge = makePart({
+				Name = "Gable",
+				Size = Vector3.new(1, rise, HALF + 1),
+				Color = color,
+				Parent = model,
+			}, "WedgePart")
+			-- 高い方を真ん中に向ける
+			wedge.CFrame = cf * CFrame.new(side * (HALF + 1) / 2, 12 + rise / 2, z) * CFrame.Angles(0, -side * math.pi / 2, 0)
+		end
+	end
 
 	-- ロック時に見える赤いバリア（通過はでき、侵入者はサーバーが外に出す）
 	base.barrier = makePart({
@@ -972,6 +1053,9 @@ local function spawnFieldItem(item, groundPos)
 	model.Parent = fieldFolder
 end
 
+-- 今の天気イベントの効果（イベントがないときはすべて1）
+local weather = { incomeMult = 1, spawnMult = 1, rareBoost = 1 }
+
 -- 810の卵（いちばんレアな卵）は、卵畑には1日に1個だけ出る（日本時間の0時でリセット）。
 -- セーブが使えるときは全サーバー合わせて1日1個、使えないときはサーバーごとに1日1個。
 -- 管理者のコード「114514810」はこの制限と関係なく使える。
@@ -1018,12 +1102,20 @@ local function claimTopEggToday()
 end
 
 local function pickFieldRarity()
-	local r = weightedPick(Config.Rarities)
+	local list = Config.Rarities
+	if weather.rareBoost > 1 then
+		-- 太陽イベント：レア以上が出やすい
+		list = {}
+		for i, v in ipairs(Config.Rarities) do
+			list[i] = { Weight = i >= 3 and v.Weight * weather.rareBoost or v.Weight }
+		end
+	end
+	local r = weightedPick(list)
 	if r == TOP_RARITY and not claimTopEggToday() then
 		-- 今日の810はもう出たので、810以外から選び直す
 		local others = {}
 		for i = 1, TOP_RARITY - 1 do
-			others[i] = Config.Rarities[i]
+			others[i] = list[i]
 		end
 		r = weightedPick(others)
 	end
@@ -1032,11 +1124,11 @@ end
 
 task.spawn(function()
 	while true do
-		if #fieldFolder:GetChildren() < Config.FieldEggCount then
+		if #fieldFolder:GetChildren() < Config.FieldEggCount * weather.spawnMult then
 			local r = pickFieldRarity()
 			spawnFieldItem({ k = "egg", r = r, s = math.random(1, eggStyleCount(r)) })
 		end
-		task.wait(Config.EggSpawnInterval)
+		task.wait(Config.EggSpawnInterval / weather.spawnMult)
 	end
 end)
 
@@ -1565,7 +1657,7 @@ task.spawn(function()
 					income += inc
 				end
 			end
-			income *= st.incomeMultiplier or 1
+			income = math.floor(income * (st.incomeMultiplier or 1) * weather.incomeMult)
 			if income > 0 then
 				st.cash += income
 				st.cashValue.Value = st.cash
@@ -1583,3 +1675,201 @@ task.spawn(function()
 		end
 	end
 end)
+
+--------------------------------------------------------------------------
+-- 天気イベント（1時間に1回、5分間）
+-- 雪：卵畑に卵がたくさん、速く出る      異変 → もっとたくさん
+-- 雨：毎秒の収入が1.5倍                  異変 → 3倍
+-- 雷：ときどき雷が落ち、近くの人は持っている物を落とす  異変 → 雷がたくさん＆広い
+-- 太陽：レア以上の卵が出やすい（2倍）    異変 → 5倍
+-- 時間・確率は EggConfig の EventInterval / EventDuration / EventAnomalyChance で変えられる
+--------------------------------------------------------------------------
+local Lighting = game:GetService("Lighting")
+
+local EVENTS = {
+	{ Name = "雪", Icon = "❄", Text = "卵畑に卵がたくさん出る！" },
+	{ Name = "雨", Icon = "☔", Text = "毎秒の収入がアップ！" },
+	{ Name = "雷", Icon = "⚡", Text = "雷に当たると持っている物を落とすぞ！" },
+	{ Name = "太陽", Icon = "☀", Text = "レアな卵が出やすい！" },
+}
+
+local function notifyAll(text)
+	for _, p in ipairs(Players:GetPlayers()) do
+		notify(p, text)
+	end
+end
+
+-- 空から降るもの（雪・雨）
+local function makeSky(kind, strong)
+	local sky = makePart({
+		Name = "WeatherSky",
+		Size = Vector3.new(Config.BaseRingRadius * 2 + 120, 1, Config.BaseRingRadius * 2 + 120),
+		Position = Vector3.new(0, 90, 0),
+		Transparency = 1,
+		CanCollide = false,
+		CanQuery = false,
+		CanTouch = false,
+		Parent = workspace,
+	})
+	local e = Instance.new("ParticleEmitter")
+	e.EmissionDirection = Enum.NormalId.Bottom
+	e.SpreadAngle = Vector2.new(5, 5)
+	if kind == "雪" then
+		e.Color = ColorSequence.new(Color3.new(1, 1, 1))
+		e.Size = NumberSequence.new(0.6)
+		e.Speed = NumberRange.new(12, 18)
+		e.Lifetime = NumberRange.new(6, 8)
+		e.Rate = strong and 1200 or 600
+		e.RotSpeed = NumberRange.new(-60, 60)
+	elseif kind == "雨" then
+		e.Color = ColorSequence.new(Color3.fromRGB(170, 200, 255))
+		e.Size = NumberSequence.new(0.15)
+		e.Squash = NumberSequence.new(3)
+		e.Transparency = NumberSequence.new(0.3)
+		e.Speed = NumberRange.new(80, 100)
+		e.Lifetime = NumberRange.new(1, 1.2)
+		e.Rate = strong and 2500 or 1200
+		e.Orientation = Enum.ParticleOrientation.VelocityParallel
+	end
+	e.Parent = sky
+	return sky
+end
+
+-- 雷を1回落とす
+local function strikeLightning(radius)
+	local a = math.random() * math.pi * 2
+	local d = math.sqrt(math.random()) * radius
+	local pos = Vector3.new(math.cos(a) * d, 0, math.sin(a) * d)
+	local bolt = makePart({
+		Name = "Lightning",
+		Size = Vector3.new(1.5, 160, 1.5),
+		Position = pos + Vector3.new(0, 80, 0),
+		Color = Color3.fromRGB(255, 255, 160),
+		Material = Enum.Material.Neon,
+		CanCollide = false,
+		CanQuery = false,
+		CanTouch = false,
+		Parent = workspace,
+	})
+	local light = Instance.new("PointLight")
+	light.Brightness = 10
+	light.Range = 60
+	light.Color = Color3.fromRGB(255, 255, 200)
+	light.Parent = bolt
+	Debris:AddItem(bolt, 0.25)
+	for player, st in pairs(states) do
+		local root = getRoot(player)
+		if root and st.carrying and (Vector3.new(root.Position.X, 0, root.Position.Z) - pos).Magnitude < 12 then
+			dropCarry(player)
+			notify(player, "⚡ 雷に打たれて落としてしまった！")
+		end
+	end
+end
+
+local currentEvent = nil
+local function runEvent()
+	if currentEvent then
+		return false
+	end
+	local ev = EVENTS[math.random(1, #EVENTS)]
+	local anomaly = math.random() < Config.EventAnomalyChance
+	currentEvent = ev
+
+	-- 空の見た目を覚えておく（終わったら戻す）
+	local saved = {
+		ClockTime = Lighting.ClockTime,
+		Brightness = Lighting.Brightness,
+		Ambient = Lighting.Ambient,
+		OutdoorAmbient = Lighting.OutdoorAmbient,
+	}
+	local atmo = Lighting:FindFirstChildOfClass("Atmosphere")
+	local savedAtmo = atmo and { Density = atmo.Density, Color = atmo.Color, Haze = atmo.Haze }
+
+	local sky = nil
+	local running = true
+	if ev.Name == "雪" then
+		weather.spawnMult = anomaly and 3 or 2
+		sky = makeSky("雪", anomaly)
+		Lighting.OutdoorAmbient = Color3.fromRGB(200, 210, 230)
+		if atmo then
+			atmo.Density = 0.45
+			atmo.Color = Color3.fromRGB(230, 235, 245)
+		end
+	elseif ev.Name == "雨" then
+		weather.incomeMult = anomaly and 3 or 1.5
+		sky = makeSky("雨", anomaly)
+		Lighting.Brightness = math.min(saved.Brightness, 1)
+		if atmo then
+			atmo.Density = 0.4
+			atmo.Color = Color3.fromRGB(150, 160, 175)
+		end
+	elseif ev.Name == "雷" then
+		Lighting.ClockTime = 20
+		if atmo then
+			atmo.Density = 0.5
+			atmo.Color = Color3.fromRGB(90, 90, 110)
+		end
+		task.spawn(function()
+			while running do
+				strikeLightning(anomaly and Config.BaseRingRadius + 20 or Config.FieldRadius + 30)
+				task.wait(anomaly and 1 or 3)
+			end
+		end)
+	elseif ev.Name == "太陽" then
+		weather.rareBoost = anomaly and 5 or 2
+		Lighting.ClockTime = 12
+		Lighting.Brightness = 4
+		if atmo then
+			atmo.Density = 0.2
+			atmo.Color = Color3.fromRGB(255, 240, 200)
+		end
+	end
+	if anomaly then
+		-- 異変：空があやしい色になる
+		Lighting.Ambient = Color3.fromRGB(120, 0, 120)
+		Lighting.OutdoorAmbient = Color3.fromRGB(180, 40, 160)
+		if atmo then
+			atmo.Color = Color3.fromRGB(200, 60, 180)
+		end
+	end
+	local title = (anomaly and "【異変】" or "") .. ev.Icon .. ev.Name .. "イベント"
+	workspace:SetAttribute("WeatherEvent", title)
+	notifyAll(title .. "スタート！" .. ev.Text .. (anomaly and "（異変で効果がパワーアップ！）" or ""))
+
+	task.wait(Config.EventDuration)
+
+	running = false
+	weather.incomeMult, weather.spawnMult, weather.rareBoost = 1, 1, 1
+	if sky then
+		sky:Destroy()
+	end
+	for k, v in pairs(saved) do
+		Lighting[k] = v
+	end
+	if atmo and savedAtmo then
+		for k, v in pairs(savedAtmo) do
+			atmo[k] = v
+		end
+	end
+	workspace:SetAttribute("WeatherEvent", nil)
+	notifyAll(title .. "がおわった")
+	currentEvent = nil
+	return true
+end
+
+task.spawn(function()
+	while true do
+		task.wait(Config.EventInterval)
+		runEvent()
+	end
+end)
+
+-- 管理者用：コード「イベント」ですぐにイベントを始める（テスト用）
+CODES["イベント"] = function(player, st)
+	if currentEvent then
+		return "今はイベント中だよ"
+	end
+	task.spawn(runEvent)
+	return "イベントを始めたよ"
+end
+ADMIN_ONLY_CODES["イベント"] = true
