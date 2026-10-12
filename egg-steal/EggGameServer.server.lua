@@ -1073,6 +1073,12 @@ local function insideBase(base, pos)
 	return math.abs(p.X) < HALF and math.abs(p.Z) < HALF and p.Y > -5 and p.Y < 30
 end
 
+local function insideCage(base, pos)
+	local p = base.cageCF:PointToObjectSpace(pos)
+	local h = Config.CageSize / 2
+	return math.abs(p.X) < h and math.abs(p.Z) < h and p.Y > -5 and p.Y < 30
+end
+
 local function slotTopCF(base, i)
 	local ped = base.slotParts[i]
 	return ped.CFrame * CFrame.new(0, ped.Size.Y / 2, 0)
@@ -1349,6 +1355,20 @@ function hatchSlot(base, slot, player)
 	local name, income = itemInfo(pet)
 	notify(player, rar.Name .. "の卵から " .. name .. " が生まれた！ +" .. formatNumber(income) .. "/秒")
 	discover(player, st, pet)
+
+	-- 生まれた生き物は少ししたら檻へ（檻がいっぱいなら台に残る）
+	task.wait(1.5)
+	if base.owner == player and st.items[slot] == pet and not base.busy[slot] then
+		if #st.cage < Config.CageMax then
+			st.items[slot] = nil
+			table.insert(st.cage, pet)
+			refreshSlot(base, slot)
+			refreshCage(base)
+			notify(player, name .. "は檻に入った！")
+		else
+			notify(player, "檻がいっぱいなので、" .. name .. "は台に置いたよ")
+		end
+	end
 end
 
 --------------------------------------------------------------------------
@@ -1972,7 +1992,16 @@ task.spawn(function()
 		local t = now()
 		for player, st in pairs(states) do
 			local root = getRoot(player)
-			if st.carrying and root and insideBase(st.base, root.Position) then
+			local carriedPet = st.carrying and st.carrying.item.k == "pet"
+			if carriedPet and root and #st.cage < Config.CageMax and (insideBase(st.base, root.Position) or insideCage(st.base, root.Position)) then
+				-- 生き物は檻に入れる
+				local item = st.carrying.item
+				stopCarry(player)
+				table.insert(st.cage, item)
+				refreshCage(st.base)
+				notify(player, itemInfo(item) .. "を檻に入れた！")
+				discover(player, st, item)
+			elseif st.carrying and root and insideBase(st.base, root.Position) then
 				local free = nil
 				for i = 1, st.slots do
 					if st.items[i] == nil and not st.base.busy[i] then
