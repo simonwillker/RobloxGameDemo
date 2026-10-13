@@ -63,21 +63,88 @@ local function eggStyleCount(r)
 	return #EGG_PATTERNS * #Config.Rarities[r].Palettes
 end
 
-local function itemInfo(item)
-	local rar = Config.Rarities[item.r]
-	local mut = item.m and Config.Mutations[item.m]
-	local prefix = mut and ("[" .. mut.Icon .. item.m .. "] ") or ""
-	local mult = mut and mut.Mult or 1
-	if item.k == "pet" then
-		local sp = Config.Species[item.r][item.s]
-		return prefix .. sp.Name, sp.Income * mult
+-- 異変は "金+雷" のように + でつないで重ねられる
+local function mutList(m)
+	local list = {}
+	if type(m) == "string" then
+		for name in string.gmatch(m, "[^+]+") do
+			if Config.Mutations[name] and not table.find(list, name) then
+				table.insert(list, name)
+			end
+		end
 	end
-	return prefix .. rar.Name .. "の卵", rar.Income * mult
+	return list
 end
 
--- 画面の一覧などで使う名前（"レア度_番号" か "レア度_番号_異変"）
+local function joinMuts(list)
+	return #list > 0 and table.concat(list, "+") or nil
+end
+
+-- 異変を1つ足す（もうついていたら何もしない）
+local function addMut(m, name)
+	local list = mutList(m)
+	if name and Config.Mutations[name] and not table.find(list, name) then
+		table.insert(list, name)
+	end
+	return joinMuts(list)
+end
+
+local function itemWeight(item)
+	return item.w or 1
+end
+
+local function itemInfo(item)
+	local rar = Config.Rarities[item.r]
+	local prefix, mult = "", itemWeight(item)
+	local muts = mutList(item.m)
+	if #muts > 0 then
+		local icons = ""
+		for _, name in ipairs(muts) do
+			icons ..= Config.Mutations[name].Icon
+			mult *= Config.Mutations[name].Mult
+		end
+		prefix = "[" .. icons .. table.concat(muts, "") .. "] "
+	end
+	local suffix = string.format(" %.1fkg", itemWeight(item))
+	if item.k == "pet" then
+		local sp = Config.Species[item.r][item.s]
+		return prefix .. sp.Name .. suffix, sp.Income * mult
+	end
+	return prefix .. rar.Name .. "の卵" .. suffix, rar.Income * mult
+end
+
+-- 画面の一覧などで使う名前（"レア度_番号_重さ_異変"）
 local function itemKey(item)
-	return item.r .. "_" .. item.s .. (item.m and ("_" .. item.m) or "")
+	return item.r .. "_" .. item.s .. "_" .. string.format("%.1f", itemWeight(item)) .. "_" .. (item.m or "")
+end
+
+-- 卵畑の卵の重さを決める
+local function rollWeight()
+	local total = 0
+	for _, e in ipairs(Config.EggWeights) do
+		total += e.Weight
+	end
+	local x = math.random() * total
+	for _, e in ipairs(Config.EggWeights) do
+		x -= e.Weight
+		if x <= 0 then
+			return math.floor((e.Min + math.random() * (e.Max - e.Min)) * 10 + 0.5) / 10
+		end
+	end
+	return 1
+end
+
+-- 卵畑の卵にたまにつく異変（金・銀・虹）。重いほどつきやすい
+local function rollSpawnMut(w)
+	local best = nil
+	for name, mut in pairs(Config.Mutations) do
+		if mut.Chance and math.random() < mut.Chance * w then
+			if not best or mut.Mult > Config.Mutations[best].Mult then
+				best = name
+			end
+		end
+	end
+	return best
 end
 
 local function validItem(v)
@@ -87,12 +154,14 @@ local function validItem(v)
 	if type(v) ~= "table" or not Config.Rarities[v.r] or type(v.s) ~= "number" then
 		return nil
 	end
-	local m = (type(v.m) == "string" and Config.Mutations[v.m]) and v.m or nil
+	local m = joinMuts(mutList(v.m))
+	local w = type(v.w) == "number" and math.clamp(v.w, 0.1, 1000) or nil
 	if v.k == "egg" and v.s >= 1 and v.s <= eggStyleCount(v.r) then
-		return { k = "egg", r = v.r, s = v.s, m = m }
+		local g = type(v.g) == "number" and math.max(0, math.floor(v.g)) or nil
+		return { k = "egg", r = v.r, s = v.s, m = m, w = w, g = g }
 	end
 	if v.k == "pet" and Config.Species[v.r] and Config.Species[v.r][v.s] then
-		return { k = "pet", r = v.r, s = v.s, m = m }
+		return { k = "pet", r = v.r, s = v.s, m = m, w = w }
 	end
 	return nil
 end
@@ -315,33 +384,34 @@ end
 
 -- 天気の異変の見た目（マークと、まわりのエフェクト）
 local FLICKER_TAG = "EggFlicker"
-local function addMutationLook(model, root, m, labelOffset)
+local function addOneMutation(model, root, m)
 	local mut = Config.Mutations[m]
-	if not mut then
-		return
-	end
-	-- 上のマーク
-	local bb = Instance.new("BillboardGui")
-	bb.Size = UDim2.fromOffset(48, 48)
-	bb.StudsOffset = Vector3.new(0, labelOffset + 2.2, 0)
-	bb.MaxDistance = 80
-	bb.Parent = root
-	local icon = Instance.new("TextLabel")
-	icon.Size = UDim2.fromScale(1, 1)
-	icon.BackgroundTransparency = 1
-	icon.TextScaled = true
-	icon.Text = mut.Icon
-	icon.TextColor3 = mut.Color
-	icon.Parent = bb
-
-	local light = Instance.new("PointLight")
-	light.Color = mut.Color
-	light.Range = 10
-	light.Brightness = 2
-	light.Parent = root
-
 	local center = root.Position
-	if m == "雷" then
+	if m == "金" or m == "銀" then
+		-- からだが金ぴか / 銀ぴかになる
+		for _, p in ipairs(model:GetDescendants()) do
+			if p:IsA("BasePart") and p.Material ~= NEON and p.Transparency < 1 then
+				p.Color = p.Color:Lerp(mut.Color, 0.75)
+				p.Material = Enum.Material.Metal
+				p.Reflectance = 0.3
+			end
+		end
+		local e = Instance.new("ParticleEmitter")
+		e.Color = ColorSequence.new(mut.Color)
+		e.LightEmission = 1
+		e.Size = NumberSequence.new(0.3, 0)
+		e.Speed = NumberRange.new(1, 2)
+		e.SpreadAngle = Vector2.new(180, 180)
+		e.Lifetime = NumberRange.new(0.5, 1)
+		e.Rate = 8
+		e.Parent = root
+	elseif m == "虹" then
+		for i, p in ipairs(model:GetDescendants()) do
+			if p:IsA("BasePart") and p.Material ~= NEON and p.Transparency < 1 then
+				makeRainbow(p, i * 0.05)
+			end
+		end
+	elseif m == "雷" then
 		-- 黄色い稲妻がまわりを走る（ちかちか光る）
 		for k = 0, 2 do
 			local a = k * math.pi * 2 / 3
@@ -391,6 +461,49 @@ local function addMutationLook(model, root, m, labelOffset)
 			e.Lifetime = NumberRange.new(0.6, 1.2)
 		end
 		e.Parent = root
+	end
+end
+
+local function addMutationLook(model, root, m, labelOffset)
+	local muts = mutList(m)
+	if #muts == 0 then
+		return
+	end
+	-- 上のマーク（重ねがけならマークが並ぶ）
+	local icons = ""
+	for _, name in ipairs(muts) do
+		icons ..= Config.Mutations[name].Icon
+	end
+	local first = Config.Mutations[muts[#muts]]
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.fromOffset(40 * #muts + 8, 48)
+	bb.StudsOffset = Vector3.new(0, labelOffset + 2.2, 0)
+	bb.MaxDistance = 80
+	bb.Parent = root
+	local icon = Instance.new("TextLabel")
+	icon.Size = UDim2.fromScale(1, 1)
+	icon.BackgroundTransparency = 1
+	icon.TextScaled = true
+	icon.Text = icons
+	icon.TextColor3 = first.Color
+	icon.Parent = bb
+
+	local light = Instance.new("PointLight")
+	light.Color = first.Color
+	light.Range = 10
+	light.Brightness = 2
+	light.Parent = root
+
+	-- 金・銀・虹（色をぬる）を先に、天気（まわりの飾り）をあとに
+	for _, name in ipairs(muts) do
+		if Config.Mutations[name].Chance then
+			addOneMutation(model, root, name)
+		end
+	end
+	for _, name in ipairs(muts) do
+		if not Config.Mutations[name].Chance then
+			addOneMutation(model, root, name)
+		end
 	end
 end
 task.spawn(function()
@@ -718,10 +831,22 @@ local function buildItem(item)
 	else
 		model, root, labelOffset = buildEgg(item.r, item.s)
 	end
-	local name, income = itemInfo(item)
-	makeLabel(root, name .. "\n+" .. formatNumber(income) .. "/秒", Config.Rarities[item.r].Color, UDim2.fromOffset(140, 44), labelOffset, 50)
 	if item.m then
 		addMutationLook(model, root, item.m, labelOffset)
+	end
+	-- 重いほど大きく見える（台からはみ出ないよう2倍まで）
+	local vis = math.clamp(1 + (itemWeight(item) - 1) * 0.25, 0.8, 2)
+	if vis ~= 1 then
+		model:ScaleTo(model:GetScale() * vis)
+		labelOffset *= vis
+	end
+	local name, income = itemInfo(item)
+	makeLabel(root, name .. "\n+" .. formatNumber(income) .. "/秒", Config.Rarities[item.r].Color, UDim2.fromOffset(150, 44), labelOffset, 50)
+	if item.k == "egg" and item.g then
+		-- 育つまでの残り時間
+		local grow = makeLabel(root, "", Color3.fromRGB(150, 255, 150), UDim2.fromOffset(120, 24), labelOffset - 1.4, 40)
+		grow.Parent.Name = "GrowGui"
+		grow.Text = item.g > 0 and ("育つまで " .. string.format("%d:%02d", item.g // 60, item.g % 60)) or "開けられる！"
 	end
 	return model, root
 end
@@ -892,6 +1017,10 @@ local function onSlotPrompt(base, slot, player)
 
 	if player == owner then
 		if item.k == "egg" then
+			if item.g and item.g > 0 then
+				notify(player, "まだ育っていない！あと " .. string.format("%d:%02d", item.g // 60, item.g % 60))
+				return
+			end
 			hatchSlot(base, slot, player) -- 自分の卵 → 開ける
 		else
 			-- 自分の生き物 → 売る
@@ -1252,6 +1381,9 @@ function refreshSlot(base, i)
 		base.slotModels[i] = nil
 	end
 	local item = st and st.items[i]
+	if item and item.k == "egg" and item.g == nil then
+		item.g = Config.GrowTimes[item.r] or 30 -- 台に置いたら育ちはじめる
+	end
 	if item then
 		local model = buildItem(item)
 		placeItem(model, item, slotTopCF(base, i))
@@ -1495,7 +1627,7 @@ function hatchSlot(base, slot, player)
 
 	-- 生き物の誕生
 	local speciesIndex = weightedPick(Config.Species[item.r])
-	local pet = { k = "pet", r = item.r, s = speciesIndex, m = item.m } -- 異変は受けつぐ
+	local pet = { k = "pet", r = item.r, s = speciesIndex, m = item.m, w = item.w } -- 異変と重さは受けつぐ
 	st.items[slot] = pet
 	base.busy[slot] = nil
 	refreshSlot(base, slot)
@@ -1595,6 +1727,32 @@ end
 -- 今の天気イベントの効果（イベントがないときはすべて1）
 local weather = { incomeMult = 1, spawnMult = 1, rareBoost = 1, mutation = nil }
 
+-- 卵が育つ（天気イベント中は速い）
+task.spawn(function()
+	while true do
+		task.wait(1)
+		local speed = weather.mutation and Config.EventGrowSpeed or 1
+		for _, st in pairs(states) do
+			if st.base and st.items then
+				for i = 1, st.slots do
+					local it = st.items[i]
+					if it and it.k == "egg" and it.g and it.g > 0 then
+						it.g = math.max(0, it.g - speed)
+						local model = st.base.slotModels[i]
+						local gui = model and model:FindFirstChild("GrowGui", true)
+						if gui then
+							gui.TextLabel.Text = it.g > 0 and ("育つまで " .. string.format("%d:%02d", it.g // 60, it.g % 60)) or "開けられる！"
+						end
+						if it.g == 0 and st.base.owner then
+							notify(st.base.owner, (itemInfo(it)) .. "が育った！開けられるよ")
+						end
+					end
+				end
+			end
+		end
+	end
+end)
+
 -- 810の卵（いちばんレアな卵）は、卵畑には1日に1個だけ出る（日本時間の0時でリセット）。
 -- セーブが使えるときは全サーバー合わせて1日1個、使えないときはサーバーごとに1日1個。
 -- 管理者のコード「114514810」はこの制限と関係なく使える。
@@ -1665,7 +1823,8 @@ task.spawn(function()
 	while true do
 		if #fieldFolder:GetChildren() < Config.FieldEggCount * weather.spawnMult then
 			local r = pickFieldRarity()
-			spawnFieldItem({ k = "egg", r = r, s = math.random(1, eggStyleCount(r)), m = weather.mutation })
+			local w = rollWeight()
+			spawnFieldItem({ k = "egg", r = r, s = math.random(1, eggStyleCount(r)), w = w, m = addMut(rollSpawnMut(w), weather.mutation) })
 		end
 		task.wait(Config.EggSpawnInterval / weather.spawnMult)
 	end
@@ -2409,9 +2568,17 @@ local function runEvent()
 				if st.base and st.items then
 					for i = 1, st.slots do
 						local it = st.items[i]
-						if it and it.k == "egg" and not it.m and not st.base.busy[i] then
-							it.m = ev.Name
-							refreshSlot(st.base, i)
+						if it and it.k == "egg" and not st.base.busy[i] then
+							local hasWeather = false
+							for _, name in ipairs(mutList(it.m)) do
+								if not Config.Mutations[name].Chance then
+									hasWeather = true
+								end
+							end
+							if not hasWeather then
+								it.m = addMut(it.m, ev.Name)
+								refreshSlot(st.base, i)
+							end
 						end
 					end
 				end
@@ -2666,6 +2833,50 @@ CageAction.OnServerEvent:Connect(function(player, action, index, key)
 		refreshCage(st.base)
 		startCarry(player, item, { owner = player, cage = true })
 		notify(player, itemInfo(item) .. "を持った！置きたいところで [G]（置くボタン）")
+	elseif action == "fuse" then
+		-- 合体マシン：同じペットを FuseCount 匹あわせて、重いペット1匹にする
+		local picks = { index }
+		for i, other in ipairs(st.cage) do
+			if #picks >= Config.FuseCount then
+				break
+			end
+			if i ~= index and other.r == item.r and other.s == item.s then
+				table.insert(picks, i)
+			end
+		end
+		if #picks < Config.FuseCount then
+			notify(player, "合体には同じペットが" .. Config.FuseCount .. "匹いるよ")
+			return
+		end
+		local total, common = 0, nil
+		for n, i in ipairs(picks) do
+			local it = st.cage[i]
+			total += itemWeight(it)
+			local muts = mutList(it.m)
+			if n == 1 then
+				common = muts
+			else
+				local keep = {}
+				for _, name in ipairs(common) do
+					if table.find(muts, name) then
+						table.insert(keep, name)
+					end
+				end
+				common = keep
+			end
+		end
+		table.sort(picks, function(x, y)
+			return x > y
+		end)
+		for _, i in ipairs(picks) do
+			table.remove(st.cage, i)
+		end
+		local w = math.floor(total * Config.FuseWeightRate * 10 + 0.5) / 10
+		local fused = { k = "pet", r = item.r, s = item.s, w = w, m = joinMuts(common) }
+		table.insert(st.cage, fused)
+		refreshCage(st.base)
+		local name, income = itemInfo(fused)
+		notify(player, "合体成功！" .. name .. " になった！ +" .. formatNumber(income) .. "/秒")
 	end
 end)
 

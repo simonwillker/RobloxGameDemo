@@ -52,7 +52,30 @@ Config.Mutations = {
 	["雨"] = { Icon = "☔", Mult = 2, Color = Color3.fromRGB(80, 150, 255) },
 	["雷"] = { Icon = "⚡", Mult = 3, Color = Color3.fromRGB(255, 230, 40) },
 	["太陽"] = { Icon = "☀", Mult = 2, Color = Color3.fromRGB(255, 170, 40) },
+	-- ここから下は、卵畑に出る卵にたまにつく異変（大きい卵ほどつきやすい）
+	["銀"] = { Icon = "🥈", Mult = 1.25, Color = Color3.fromRGB(210, 215, 225), Chance = 0.08 },
+	["金"] = { Icon = "🥇", Mult = 2, Color = Color3.fromRGB(255, 200, 40), Chance = 0.04 },
+	["虹"] = { Icon = "🌈", Mult = 2.5, Color = Color3.fromRGB(255, 120, 220), Chance = 0.01 },
 }
+-- 異変はいくつも重ねてつけられる（例：金＋雷 = 2 × 3 = 6倍）
+
+-- 重さ（kg）：卵畑の卵はいろいろな重さで出る。重いほど大きく、稼ぎも重さぶん増える（2kg = 2倍）
+-- 生まれたペットは卵の重さを受けつぐ
+Config.EggWeights = {
+	{ Min = 1, Max = 1.5, Weight = 75 },  -- ふつう
+	{ Min = 1.5, Max = 3, Weight = 20 },  -- 大きい
+	{ Min = 3, Max = 5, Weight = 5 },     -- 巨大
+}
+
+-- 卵が育つ時間（秒）：台に置いてからこの時間がたつと開けられる。レア度の順
+Config.GrowTimes = { 10, 20, 40, 60, 120, 180, 300, 60 }
+-- 天気イベント中は卵が何倍速で育つか
+Config.EventGrowSpeed = 5
+
+-- 合体マシン：同じペットを3匹あわせると1匹の重いペットになる（重さ = 3匹の合計 × FuseWeightRate）
+-- 3匹ともについている異変だけが残る
+Config.FuseCount = 3
+Config.FuseWeightRate = 0.6
 
 -- セーブ（Studioで使うには「APIサービスへのStudioアクセス」をON）
 Config.UseDataStore = true

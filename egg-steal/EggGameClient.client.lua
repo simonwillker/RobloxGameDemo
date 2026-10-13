@@ -354,10 +354,25 @@ local function refreshCageList()
 		table.insert(keys, key)
 	end
 	cageTitle.Text = "檻のペット  " .. #keys .. " / " .. Config.CageMax
+	-- 同じペットが何匹いるか（合体できるか）
+	local sameCount = {}
+	for _, key in ipairs(keys) do
+		local rs = string.match(key, "^(%d+_%d+)")
+		if rs then
+			sameCount[rs] = (sameCount[rs] or 0) + 1
+		end
+	end
 	for i, key in ipairs(keys) do
-		local r, sIdx, mName = string.match(key, "^(%d+)_(%d+)_?(.*)$")
-		r, sIdx = tonumber(r), tonumber(sIdx)
-		local mut = Config.Mutations and mName and Config.Mutations[mName]
+		local r, sIdx, w, mStr = string.match(key, "^(%d+)_(%d+)_([%d%.]+)_(.*)$")
+		r, sIdx, w = tonumber(r), tonumber(sIdx), tonumber(w) or 1
+		local mult, icons = w, ""
+		for name in string.gmatch(mStr or "", "[^+]+") do
+			local mu = Config.Mutations[name]
+			if mu then
+				mult *= mu.Mult
+				icons ..= mu.Icon
+			end
+		end
 		local rar = r and Config.Rarities[r]
 		local sp = rar and Config.Species[r] and Config.Species[r][sIdx]
 		if sp then
@@ -370,18 +385,24 @@ local function refreshCageList()
 			Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
 			local label = Instance.new("TextLabel")
 			label.Position = UDim2.fromOffset(8, 2)
-			label.Size = UDim2.new(1, -190, 1, -4)
+			label.Size = UDim2.new(1, -276, 1, -4)
 			label.BackgroundTransparency = 1
 			label.Font = Enum.Font.GothamBold
 			label.TextScaled = true
 			label.TextXAlignment = Enum.TextXAlignment.Left
 			label.TextColor3 = Color3.new(1, 1, 1)
-			local income = sp.Income * (mut and mut.Mult or 1)
-			label.Text = (mut and (mut.Icon .. mName .. " ") or "") .. sp.Name .. "（" .. rar.Name .. "）  +" .. formatNumber(income) .. "/秒"
+			local income = sp.Income * mult
+			label.Text = icons .. sp.Name .. string.format(" %.1fkg", w) .. "（" .. rar.Name .. "）  +" .. formatNumber(income) .. "/秒"
 			label.ZIndex = 13
 			label.Parent = row
 			local holdB = cageRowButton(row, "持つ", Color3.fromRGB(60, 140, 230), 1, -92)
 			local sellB = cageRowButton(row, "売る $" .. formatNumber(income * Config.SellMultiplier), Color3.fromRGB(230, 150, 40), 1, -6)
+			if (sameCount[r .. "_" .. sIdx] or 0) >= Config.FuseCount then
+				local fuseB = cageRowButton(row, "合体", Color3.fromRGB(170, 70, 220), 1, -178)
+				fuseB.Activated:Connect(function()
+					remotes.CageAction:FireServer("fuse", i, key)
+				end)
+			end
 			holdB.Activated:Connect(function()
 				remotes.CageAction:FireServer("hold", i, key)
 			end)
