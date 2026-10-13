@@ -41,6 +41,7 @@ local DropItem = makeRemote("DropItem")
 local RedeemCode = makeRemote("RedeemCode")
 local SetSpeed = makeRemote("SetSpeed")
 local AdminAction = makeRemote("AdminAction")
+local CageAction = makeRemote("CageAction")
 
 local function notify(player, text)
 	if player and player.Parent then
@@ -1202,6 +1203,12 @@ local function refreshCage(base)
 		table.insert(base.cagePets, entry)
 	end
 	base.cageLabel.Text = base.owner.DisplayName .. " のペット小屋 " .. #st.cage .. "/" .. Config.CageMax
+	-- 画面の「檻」一覧用（"レア度_番号" を順番に）
+	local keys = {}
+	for _, item in ipairs(st.cage) do
+		table.insert(keys, item.r .. "_" .. item.s)
+	end
+	base.owner:SetAttribute("CageData", table.concat(keys, ","))
 end
 
 local function freeSlot(st)
@@ -2501,3 +2508,75 @@ AdminAction.OnServerEvent:Connect(function(player, action)
 		notify(player, message)
 	end
 end)
+
+--------------------------------------------------------------------------
+-- 売る（檻の一覧から / 売り場で）
+--------------------------------------------------------------------------
+local function sellItem(player, st, item)
+	local name, income = itemInfo(item)
+	local price = income * Config.SellMultiplier
+	st.cash += price
+	st.cashValue.Value = st.cash
+	notify(player, name .. "を $" .. formatNumber(price) .. " で売った")
+end
+
+-- 檻の一覧から：action = "sell" / "hold"、index = 何番目か、key = その生き物の "レア度_番号"（ずれ防止）
+CageAction.OnServerEvent:Connect(function(player, action, index, key)
+	local st = states[player]
+	if not st or type(index) ~= "number" then
+		return
+	end
+	local item = st.cage[index]
+	if not item or (item.r .. "_" .. item.s) ~= key then
+		return
+	end
+	if action == "sell" then
+		table.remove(st.cage, index)
+		refreshCage(st.base)
+		sellItem(player, st, item)
+	elseif action == "hold" then
+		if st.carrying then
+			notify(player, "1個しか持てない！")
+			return
+		end
+		table.remove(st.cage, index)
+		refreshCage(st.base)
+		startCarry(player, item, { owner = player, cage = true })
+		notify(player, itemInfo(item) .. "を持った！置きたいところで [G]（置くボタン）")
+	end
+end)
+
+-- 売り場（卵畑とベースの間）。持っている物を売れる
+do
+	local angle = math.pi * 2 / Config.MaxBases / 2 -- ベースとベースの間の方向
+	local dist = Config.FieldRadius + 40
+	local pos = Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+	local cf = CFrame.lookAt(pos, Vector3.new(0, 0, 0))
+	makePart({ Name = "ShopFloor", Size = Vector3.new(16, 1, 12), CFrame = cf * CFrame.new(0, 0.5, 0), Color = Color3.fromRGB(240, 200, 120), Material = Enum.Material.WoodPlanks, Parent = map })
+	local counter = makePart({ Name = "ShopCounter", Size = Vector3.new(12, 3.5, 2.5), CFrame = cf * CFrame.new(0, 2.75, 2), Color = Color3.fromRGB(160, 100, 50), Material = Enum.Material.Wood, Parent = map })
+	for _, x in ipairs({ -7, 7 }) do
+		makePart({ Name = "ShopPole", Size = Vector3.new(0.6, 9, 0.6), CFrame = cf * CFrame.new(x, 5.5, 4), Color = Color3.fromRGB(120, 80, 40), Parent = map })
+	end
+	makePart({ Name = "ShopRoof", Size = Vector3.new(16, 0.6, 6), CFrame = cf * CFrame.new(0, 10, 3) * CFrame.Angles(math.rad(-12), 0, 0), Color = Color3.fromRGB(230, 70, 70), Parent = map })
+	makeLabel(counter, "💰 売り場\n持っている物を売れる", Color3.fromRGB(255, 230, 120), UDim2.fromOffset(220, 60), 7, 200)
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "持っている物を売る"
+	prompt.ObjectText = "売り場"
+	prompt.HoldDuration = 0.5
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = counter
+	prompt.Triggered:Connect(function(player)
+		local st = states[player]
+		if not st then
+			return
+		end
+		if not st.carrying then
+			notify(player, "売りたい物を持ってきてね（自分の台は R、檻は E で持てる）")
+			return
+		end
+		local item = st.carrying.item
+		stopCarry(player)
+		sellItem(player, st, item)
+	end)
+end

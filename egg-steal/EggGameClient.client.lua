@@ -170,9 +170,11 @@ dropButton.Visible = false -- 何か持っているときだけ表示
 local adminButton = makeButton(Color3.fromRGB(40, 40, 40))
 adminButton.Text = "管理者"
 adminButton.Visible = false -- 管理者だけ
+local cageButton = makeButton(Color3.fromRGB(90, 160, 70))
+cageButton.Text = "檻のペット"
 local indexButton = makeButton(Color3.fromRGB(150, 90, 220))
 indexButton.Text = "インデックス"
-panel.Size = UDim2.fromOffset(130, 320)
+panel.Size = UDim2.fromOffset(130, 360)
 
 -- 次の天気イベントまでの時間（画面の上）
 local eventLabel = Instance.new("TextLabel")
@@ -268,6 +270,132 @@ end)
 
 dropButton.Activated:Connect(function()
 	remotes.DropItem:FireServer()
+end)
+
+--------------------------------------------------------------------------
+-- 檻のペット一覧（見る・持つ・売る）
+--------------------------------------------------------------------------
+local cageWindow = Instance.new("Frame")
+cageWindow.AnchorPoint = Vector2.new(0.5, 0.5)
+cageWindow.Position = UDim2.fromScale(0.5, 0.5)
+cageWindow.Size = UDim2.new(0.8, 0, 0.75, 0)
+cageWindow.BackgroundColor3 = Color3.fromRGB(25, 35, 25)
+cageWindow.BackgroundTransparency = 0.05
+cageWindow.Visible = false
+cageWindow.ZIndex = 10
+cageWindow.Parent = gui
+Instance.new("UICorner", cageWindow).CornerRadius = UDim.new(0, 12)
+local cageLimit = Instance.new("UISizeConstraint")
+cageLimit.MaxSize = Vector2.new(480, 420)
+cageLimit.Parent = cageWindow
+
+local cageTitle = Instance.new("TextLabel")
+cageTitle.Position = UDim2.fromOffset(12, 6)
+cageTitle.Size = UDim2.new(1, -60, 0, 28)
+cageTitle.BackgroundTransparency = 1
+cageTitle.Font = Enum.Font.GothamBold
+cageTitle.TextScaled = true
+cageTitle.TextXAlignment = Enum.TextXAlignment.Left
+cageTitle.TextColor3 = Color3.new(1, 1, 1)
+cageTitle.ZIndex = 11
+cageTitle.Parent = cageWindow
+
+local cageClose = Instance.new("TextButton")
+cageClose.AnchorPoint = Vector2.new(1, 0)
+cageClose.Position = UDim2.new(1, -6, 0, 6)
+cageClose.Size = UDim2.fromOffset(32, 28)
+cageClose.BackgroundColor3 = Color3.fromRGB(220, 70, 70)
+cageClose.Font = Enum.Font.GothamBold
+cageClose.TextScaled = true
+cageClose.TextColor3 = Color3.new(1, 1, 1)
+cageClose.Text = "×"
+cageClose.ZIndex = 11
+cageClose.Parent = cageWindow
+Instance.new("UICorner", cageClose).CornerRadius = UDim.new(0, 8)
+
+local cageList = Instance.new("ScrollingFrame")
+cageList.Position = UDim2.fromOffset(10, 40)
+cageList.Size = UDim2.new(1, -20, 1, -50)
+cageList.BackgroundTransparency = 1
+cageList.ScrollBarThickness = 6
+cageList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+cageList.CanvasSize = UDim2.new()
+cageList.ZIndex = 11
+cageList.Parent = cageWindow
+local cageListLayout = Instance.new("UIListLayout")
+cageListLayout.Padding = UDim.new(0, 5)
+cageListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+cageListLayout.Parent = cageList
+
+local function cageRowButton(parent, text, color, xScale, xOffset)
+	local b = Instance.new("TextButton")
+	b.AnchorPoint = Vector2.new(1, 0.5)
+	b.Position = UDim2.new(xScale, xOffset, 0.5, 0)
+	b.Size = UDim2.fromOffset(80, 30)
+	b.BackgroundColor3 = color
+	b.Font = Enum.Font.GothamBold
+	b.TextScaled = true
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Text = text
+	b.ZIndex = 13
+	b.Parent = parent
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+	return b
+end
+
+local function refreshCageList()
+	for _, c in ipairs(cageList:GetChildren()) do
+		if c:IsA("Frame") then
+			c:Destroy()
+		end
+	end
+	local keys = {}
+	for key in string.gmatch(player:GetAttribute("CageData") or "", "[^,]+") do
+		table.insert(keys, key)
+	end
+	cageTitle.Text = "檻のペット  " .. #keys .. " / " .. Config.CageMax
+	for i, key in ipairs(keys) do
+		local r, sIdx = string.match(key, "^(%d+)_(%d+)$")
+		r, sIdx = tonumber(r), tonumber(sIdx)
+		local rar = r and Config.Rarities[r]
+		local sp = rar and Config.Species[r] and Config.Species[r][sIdx]
+		if sp then
+			local row = Instance.new("Frame")
+			row.LayoutOrder = i
+			row.Size = UDim2.new(1, -8, 0, 40)
+			row.BackgroundColor3 = rar.Color:Lerp(Color3.new(0, 0, 0), 0.6)
+			row.ZIndex = 12
+			row.Parent = cageList
+			Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+			local label = Instance.new("TextLabel")
+			label.Position = UDim2.fromOffset(8, 2)
+			label.Size = UDim2.new(1, -190, 1, -4)
+			label.BackgroundTransparency = 1
+			label.Font = Enum.Font.GothamBold
+			label.TextScaled = true
+			label.TextXAlignment = Enum.TextXAlignment.Left
+			label.TextColor3 = Color3.new(1, 1, 1)
+			label.Text = sp.Name .. "（" .. rar.Name .. "）  +" .. formatNumber(sp.Income) .. "/秒"
+			label.ZIndex = 13
+			label.Parent = row
+			local holdB = cageRowButton(row, "持つ", Color3.fromRGB(60, 140, 230), 1, -92)
+			local sellB = cageRowButton(row, "売る $" .. formatNumber(sp.Income * Config.SellMultiplier), Color3.fromRGB(230, 150, 40), 1, -6)
+			holdB.Activated:Connect(function()
+				remotes.CageAction:FireServer("hold", i, key)
+			end)
+			sellB.Activated:Connect(function()
+				remotes.CageAction:FireServer("sell", i, key)
+			end)
+		end
+	end
+end
+refreshCageList()
+player:GetAttributeChangedSignal("CageData"):Connect(refreshCageList)
+cageButton.Activated:Connect(function()
+	cageWindow.Visible = not cageWindow.Visible
+end)
+cageClose.Activated:Connect(function()
+	cageWindow.Visible = false
 end)
 
 --------------------------------------------------------------------------
