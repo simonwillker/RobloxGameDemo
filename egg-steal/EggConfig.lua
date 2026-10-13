@@ -7,7 +7,7 @@ local Config = {}
 -- ベース（陣地）
 Config.MaxBases = 8            -- ベースの数 = 1サーバーの最大人数にする
 Config.BaseRingRadius = 160    -- 中央の卵畑からベースまでの距離（大きいほど遠い）
-Config.BaseSize = 44           -- ベースの床の大きさ
+Config.BaseSize = 70           -- ベースの床の大きさ
 Config.MaxSlots = 10           -- 卵を置ける台の最大数
 Config.StartSlots = 3          -- 最初に使える台の数
 
@@ -109,7 +109,7 @@ Config.Rarities = {
 Config.Rarity810 = 7 -- 「810」のレア度の番号（コード 114514810・1日1個のルールで使う）
 
 -- ペット小屋（ベースの裏にある屋根なしの大きい檻。生き物を放し飼いできる）
-Config.CageSize = 40           -- 檻の広さ
+Config.CageSize = 70           -- 檻の広さ
 Config.CageMax = 15            -- 入れられる生き物の数
 Config.CagePetSpeed = 4        -- 生き物が歩く速さ
 

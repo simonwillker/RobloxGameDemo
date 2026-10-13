@@ -892,9 +892,10 @@ local function buildBase(index)
 		end
 		piece(length / 2 - left, winTop - winBottom, (left + length / 2) / 2, (winBottom + winTop) / 2)
 	end
-	windowWall(S, cf * CFrame.new(0, 6, HALF), 3) -- 後ろの壁
-	windowWall(S, cf * CFrame.new(-HALF, 6, 0) * CFrame.Angles(0, math.pi / 2, 0), 3) -- 左の壁
-	windowWall(S, cf * CFrame.new(HALF, 6, 0) * CFrame.Angles(0, math.pi / 2, 0), 3) -- 右の壁
+	local WINDOWS = math.max(3, math.floor(S / 16)) -- 壁が長いほど窓を多く
+	windowWall(S, cf * CFrame.new(0, 6, HALF), WINDOWS) -- 後ろの壁
+	windowWall(S, cf * CFrame.new(-HALF, 6, 0) * CFrame.Angles(0, math.pi / 2, 0), WINDOWS) -- 左の壁
+	windowWall(S, cf * CFrame.new(HALF, 6, 0) * CFrame.Angles(0, math.pi / 2, 0), WINDOWS) -- 右の壁
 	local frontWidth = HALF - 6
 	wall(Vector3.new(frontWidth, 10, 1), CFrame.new(-(6 + frontWidth / 2), 6, -HALF))
 	wall(Vector3.new(frontWidth, 10, 1), CFrame.new(6 + frontWidth / 2, 6, -HALF))
@@ -964,7 +965,7 @@ local function buildBase(index)
 		local ped = makePart({
 			Name = "Slot" .. i,
 			Size = Vector3.new(4, 2, 4),
-			CFrame = cf * CFrame.new(-16 + col * 8, 2, 6 + row * 8),
+			CFrame = cf * CFrame.new((-16 + col * 8) * S / 44, 2, (6 + row * 8) * S / 44), -- ベースの広さに合わせて広げる
 			Color = Color3.fromRGB(120, 120, 120),
 			Material = Enum.Material.Marble,
 			Transparency = 0.75,
@@ -2105,7 +2106,7 @@ end
 local function makeSky(kind, strong)
 	local sky = makePart({
 		Name = "WeatherSky",
-		Size = Vector3.new(Config.BaseRingRadius * 2 + 120, 1, Config.BaseRingRadius * 2 + 120),
+		Size = Vector3.new(((Config.BaseRingRadius + Config.BaseSize + Config.CageSize) * 2 + 80), 1, ((Config.BaseRingRadius + Config.BaseSize + Config.CageSize) * 2 + 80)),
 		Position = Vector3.new(0, 90, 0),
 		Transparency = 1,
 		CanCollide = false,
