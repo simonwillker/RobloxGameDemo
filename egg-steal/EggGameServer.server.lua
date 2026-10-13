@@ -845,57 +845,41 @@ local function buildBase(index)
 		Parent = model,
 	})
 
+	-- 壁は全部ガラス（外から中が見える）。ふちだけベースの色
+	local function glass(size, wallCF)
+		return makePart({
+			Name = "GlassWall",
+			Size = size,
+			CFrame = wallCF,
+			Color = Color3.fromRGB(190, 230, 255),
+			Material = Enum.Material.Glass,
+			Transparency = 0.7,
+			CastShadow = false,
+			Parent = model,
+		})
+	end
+	local function frame(size, wallCF)
+		return makePart({ Name = "WallFrame", Size = size, CFrame = wallCF, Color = color, Parent = model })
+	end
+	-- size は横・高さ・厚み、offset は真ん中の位置（ベースから見た位置）
 	local function wall(size, offset)
-		return makePart({ Name = "Wall", Size = size, CFrame = cf * offset, Color = color, Parent = model })
-	end
-	-- 窓のある壁（横の長さ length、真ん中が wallCF。窓は windowCount 個、高さ4〜8の間）
-	local function windowWall(length, wallCF, windowCount)
-		local winW, winBottom, winTop = 6, 4, 8 -- 窓の幅・下の高さ・上の高さ（床からの高さ）
-		local function piece(width, height, x, y)
-			if width > 0.05 then
-				makePart({ Name = "Wall", Size = Vector3.new(width, height, 1), CFrame = wallCF * CFrame.new(x, y - 6, 0), Color = color, Parent = model })
-			end
+		local wallCF = cf * offset
+		local alongX = size.X >= size.Z
+		local length = alongX and size.X or size.Z
+		local rot = alongX and CFrame.new() or CFrame.Angles(0, math.pi / 2, 0)
+		local c = wallCF * rot
+		glass(Vector3.new(length, size.Y, 0.4), c)
+		frame(Vector3.new(length, 0.5, 1), c * CFrame.new(0, size.Y / 2 - 0.25, 0)) -- 上のふち
+		frame(Vector3.new(length, 0.5, 1), c * CFrame.new(0, -size.Y / 2 + 0.25, 0)) -- 下のふち
+		-- たての柱（10ごと）
+		local n = math.max(1, math.floor(length / 10))
+		for k = 0, n do
+			frame(Vector3.new(0.5, size.Y, 1), c * CFrame.new(-length / 2 + length * k / n, 0, 0))
 		end
-		piece(length, winBottom - 1, 0, (1 + winBottom) / 2) -- 窓の下
-		piece(length, 11 - winTop, 0, (winTop + 11) / 2) -- 窓の上
-		local gap = length / windowCount
-		local left = -length / 2
-		for w = 1, windowCount do
-			local cx = -length / 2 + gap * (w - 0.5)
-			piece(cx - winW / 2 - left, winTop - winBottom, (left + cx - winW / 2) / 2, (winBottom + winTop) / 2)
-			left = cx + winW / 2
-			-- ガラス
-			makePart({
-				Name = "Window",
-				Size = Vector3.new(winW, winTop - winBottom, 0.3),
-				CFrame = wallCF * CFrame.new(cx, (winBottom + winTop) / 2 - 6, 0),
-				Color = Color3.fromRGB(170, 220, 255),
-				Material = Enum.Material.Glass,
-				Transparency = 0.5,
-				Parent = model,
-			})
-			-- 窓わく（白）
-			makePart({
-				Name = "WindowSill",
-				Size = Vector3.new(winW + 1, 0.4, 1.6),
-				CFrame = wallCF * CFrame.new(cx, winBottom - 6 - 0.2, 0),
-				Color = WHITE,
-				Parent = model,
-			})
-			makePart({
-				Name = "WindowBar",
-				Size = Vector3.new(0.3, winTop - winBottom, 1.2),
-				CFrame = wallCF * CFrame.new(cx, (winBottom + winTop) / 2 - 6, 0),
-				Color = WHITE,
-				Parent = model,
-			})
-		end
-		piece(length / 2 - left, winTop - winBottom, (left + length / 2) / 2, (winBottom + winTop) / 2)
 	end
-	local WINDOWS = math.max(3, math.floor(S / 16)) -- 壁が長いほど窓を多く
-	windowWall(S, cf * CFrame.new(0, 6, HALF), WINDOWS) -- 後ろの壁
-	windowWall(S, cf * CFrame.new(-HALF, 6, 0) * CFrame.Angles(0, math.pi / 2, 0), WINDOWS) -- 左の壁
-	windowWall(S, cf * CFrame.new(HALF, 6, 0) * CFrame.Angles(0, math.pi / 2, 0), WINDOWS) -- 右の壁
+	wall(Vector3.new(S, 10, 1), CFrame.new(0, 6, HALF)) -- 後ろの壁
+	wall(Vector3.new(1, 10, S), CFrame.new(-HALF, 6, 0)) -- 左の壁
+	wall(Vector3.new(1, 10, S), CFrame.new(HALF, 6, 0)) -- 右の壁
 	local frontWidth = HALF - 6
 	wall(Vector3.new(frontWidth, 10, 1), CFrame.new(-(6 + frontWidth / 2), 6, -HALF))
 	wall(Vector3.new(frontWidth, 10, 1), CFrame.new(6 + frontWidth / 2, 6, -HALF))
