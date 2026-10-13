@@ -43,7 +43,16 @@ Config.EggSpawnInterval = 3    -- 何秒ごとに卵が補充されるか
 -- 天気イベント（1時間に1回。雪・雨・雷・太陽からランダム。EventAnomalyChance の確率で「異変」になり効果が強くなる）
 Config.EventInterval = 3600    -- 何秒ごとにイベントが始まるか
 Config.EventDuration = 300     -- イベントが続く秒数
-Config.EventAnomalyChance = 0.1
+Config.EventAnomalyChance = 1   -- 1 = 天気イベントは必ず異変
+
+-- 天気の異変（天気イベント中、台の卵と卵畑に出る卵につく。生まれた生き物にも受けつがれる）
+-- Mult = 稼ぎが何倍になるか
+Config.Mutations = {
+	["雪"] = { Icon = "❄", Mult = 2, Color = Color3.fromRGB(200, 240, 255) },
+	["雨"] = { Icon = "☔", Mult = 2, Color = Color3.fromRGB(80, 150, 255) },
+	["雷"] = { Icon = "⚡", Mult = 3, Color = Color3.fromRGB(255, 230, 40) },
+	["太陽"] = { Icon = "☀", Mult = 2, Color = Color3.fromRGB(255, 170, 40) },
+}
 
 -- セーブ（Studioで使うには「APIサービスへのStudioアクセス」をON）
 Config.UseDataStore = true

@@ -65,11 +65,19 @@ end
 
 local function itemInfo(item)
 	local rar = Config.Rarities[item.r]
+	local mut = item.m and Config.Mutations[item.m]
+	local prefix = mut and ("[" .. mut.Icon .. item.m .. "] ") or ""
+	local mult = mut and mut.Mult or 1
 	if item.k == "pet" then
 		local sp = Config.Species[item.r][item.s]
-		return sp.Name, sp.Income
+		return prefix .. sp.Name, sp.Income * mult
 	end
-	return rar.Name .. "の卵", rar.Income
+	return prefix .. rar.Name .. "の卵", rar.Income * mult
+end
+
+-- 画面の一覧などで使う名前（"レア度_番号" か "レア度_番号_異変"）
+local function itemKey(item)
+	return item.r .. "_" .. item.s .. (item.m and ("_" .. item.m) or "")
 end
 
 local function validItem(v)
@@ -79,11 +87,12 @@ local function validItem(v)
 	if type(v) ~= "table" or not Config.Rarities[v.r] or type(v.s) ~= "number" then
 		return nil
 	end
+	local m = (type(v.m) == "string" and Config.Mutations[v.m]) and v.m or nil
 	if v.k == "egg" and v.s >= 1 and v.s <= eggStyleCount(v.r) then
-		return { k = "egg", r = v.r, s = v.s }
+		return { k = "egg", r = v.r, s = v.s, m = m }
 	end
 	if v.k == "pet" and Config.Species[v.r] and Config.Species[v.r][v.s] then
-		return { k = "pet", r = v.r, s = v.s }
+		return { k = "pet", r = v.r, s = v.s, m = m }
 	end
 	return nil
 end
@@ -303,6 +312,97 @@ local function addRainbowAura(model, root, size, center)
 	light.Parent = root
 	return aura
 end
+
+-- 天気の異変の見た目（マークと、まわりのエフェクト）
+local FLICKER_TAG = "EggFlicker"
+local function addMutationLook(model, root, m, labelOffset)
+	local mut = Config.Mutations[m]
+	if not mut then
+		return
+	end
+	-- 上のマーク
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.fromOffset(48, 48)
+	bb.StudsOffset = Vector3.new(0, labelOffset + 2.2, 0)
+	bb.MaxDistance = 80
+	bb.Parent = root
+	local icon = Instance.new("TextLabel")
+	icon.Size = UDim2.fromScale(1, 1)
+	icon.BackgroundTransparency = 1
+	icon.TextScaled = true
+	icon.Text = mut.Icon
+	icon.TextColor3 = mut.Color
+	icon.Parent = bb
+
+	local light = Instance.new("PointLight")
+	light.Color = mut.Color
+	light.Range = 10
+	light.Brightness = 2
+	light.Parent = root
+
+	local center = root.Position
+	if m == "雷" then
+		-- 黄色い稲妻がまわりを走る（ちかちか光る）
+		for k = 0, 2 do
+			local a = k * math.pi * 2 / 3
+			local base = CFrame.new(center) * CFrame.Angles(0, a, 0) * CFrame.new(1.6, 0, 0)
+			local pts = { Vector3.new(0, 1.6, 0), Vector3.new(0.4, 0.6, 0), Vector3.new(-0.3, -0.2, 0), Vector3.new(0.3, -1.2, 0) }
+			for i = 1, #pts - 1 do
+				local p1, p2 = base * pts[i], base * pts[i + 1]
+				local seg = deco(model, {
+					Size = Vector3.new(0.15, 0.15, (p2 - p1).Magnitude),
+					CFrame = CFrame.lookAt((p1 + p2) / 2, p2),
+					Color = mut.Color,
+					Material = NEON,
+					CastShadow = false,
+				})
+				CollectionService:AddTag(seg, FLICKER_TAG)
+			end
+		end
+		local sparks = Instance.new("ParticleEmitter")
+		sparks.Color = ColorSequence.new(mut.Color)
+		sparks.LightEmission = 1
+		sparks.Size = NumberSequence.new(0.25, 0)
+		sparks.Speed = NumberRange.new(4, 8)
+		sparks.SpreadAngle = Vector2.new(180, 180)
+		sparks.Lifetime = NumberRange.new(0.2, 0.4)
+		sparks.Rate = 25
+		sparks.Parent = root
+	else
+		local e = Instance.new("ParticleEmitter")
+		e.Color = ColorSequence.new(mut.Color)
+		e.LightEmission = m == "太陽" and 1 or 0.3
+		e.SpreadAngle = Vector2.new(180, 180)
+		e.Rate = 15
+		if m == "雪" then
+			e.Size = NumberSequence.new(0.3)
+			e.Speed = NumberRange.new(1, 2)
+			e.Acceleration = Vector3.new(0, -2, 0)
+			e.Lifetime = NumberRange.new(1.5, 2.5)
+		elseif m == "雨" then
+			e.Size = NumberSequence.new(0.15)
+			e.Squash = NumberSequence.new(2)
+			e.Speed = NumberRange.new(1, 2)
+			e.Acceleration = Vector3.new(0, -15, 0)
+			e.Lifetime = NumberRange.new(0.6, 1)
+		else -- 太陽
+			e.Size = NumberSequence.new(0.4, 0)
+			e.Speed = NumberRange.new(2, 4)
+			e.Lifetime = NumberRange.new(0.6, 1.2)
+		end
+		e.Parent = root
+	end
+end
+task.spawn(function()
+	while true do
+		for _, part in ipairs(CollectionService:GetTagged(FLICKER_TAG)) do
+			if part:IsDescendantOf(workspace) then
+				part.Transparency = math.random() < 0.4 and 1 or 0
+			end
+		end
+		task.wait(0.08)
+	end
+end)
 
 -- 卵（中心が基準点）
 local function buildEgg(r, s)
@@ -620,6 +720,9 @@ local function buildItem(item)
 	end
 	local name, income = itemInfo(item)
 	makeLabel(root, name .. "\n+" .. formatNumber(income) .. "/秒", Config.Rarities[item.r].Color, UDim2.fromOffset(140, 44), labelOffset, 50)
+	if item.m then
+		addMutationLook(model, root, item.m, labelOffset)
+	end
 	return model, root
 end
 
@@ -1206,7 +1309,7 @@ local function refreshCage(base)
 	-- 画面の「檻」一覧用（"レア度_番号" を順番に）
 	local keys = {}
 	for _, item in ipairs(st.cage) do
-		table.insert(keys, item.r .. "_" .. item.s)
+		table.insert(keys, itemKey(item))
 	end
 	base.owner:SetAttribute("CageData", table.concat(keys, ","))
 end
@@ -1392,7 +1495,7 @@ function hatchSlot(base, slot, player)
 
 	-- 生き物の誕生
 	local speciesIndex = weightedPick(Config.Species[item.r])
-	local pet = { k = "pet", r = item.r, s = speciesIndex }
+	local pet = { k = "pet", r = item.r, s = speciesIndex, m = item.m } -- 異変は受けつぐ
 	st.items[slot] = pet
 	base.busy[slot] = nil
 	refreshSlot(base, slot)
@@ -1490,7 +1593,7 @@ local function spawnFieldItem(item, groundPos, scale)
 end
 
 -- 今の天気イベントの効果（イベントがないときはすべて1）
-local weather = { incomeMult = 1, spawnMult = 1, rareBoost = 1 }
+local weather = { incomeMult = 1, spawnMult = 1, rareBoost = 1, mutation = nil }
 
 -- 810の卵（いちばんレアな卵）は、卵畑には1日に1個だけ出る（日本時間の0時でリセット）。
 -- セーブが使えるときは全サーバー合わせて1日1個、使えないときはサーバーごとに1日1個。
@@ -1562,7 +1665,7 @@ task.spawn(function()
 	while true do
 		if #fieldFolder:GetChildren() < Config.FieldEggCount * weather.spawnMult then
 			local r = pickFieldRarity()
-			spawnFieldItem({ k = "egg", r = r, s = math.random(1, eggStyleCount(r)) })
+			spawnFieldItem({ k = "egg", r = r, s = math.random(1, eggStyleCount(r)), m = weather.mutation })
 		end
 		task.wait(Config.EggSpawnInterval / weather.spawnMult)
 	end
@@ -2223,12 +2326,14 @@ local function makeSky(kind, strong)
 	e.EmissionDirection = Enum.NormalId.Bottom
 	e.SpreadAngle = Vector2.new(5, 5)
 	if kind == "雪" then
+		-- 吹雪：たくさん、横風つき
 		e.Color = ColorSequence.new(Color3.new(1, 1, 1))
-		e.Size = NumberSequence.new(0.6)
-		e.Speed = NumberRange.new(12, 18)
-		e.Lifetime = NumberRange.new(6, 8)
-		e.Rate = strong and 1200 or 600
-		e.RotSpeed = NumberRange.new(-60, 60)
+		e.Size = NumberSequence.new(0.6, 1.2)
+		e.Speed = NumberRange.new(15, 25)
+		e.Lifetime = NumberRange.new(5, 7)
+		e.Rate = strong and 5000 or 2500
+		e.RotSpeed = NumberRange.new(-120, 120)
+		e.Acceleration = Vector3.new(30, 0, 12)
 	elseif kind == "雨" then
 		e.Color = ColorSequence.new(Color3.fromRGB(170, 200, 255))
 		e.Size = NumberSequence.new(0.15)
@@ -2236,7 +2341,8 @@ local function makeSky(kind, strong)
 		e.Transparency = NumberSequence.new(0.3)
 		e.Speed = NumberRange.new(80, 100)
 		e.Lifetime = NumberRange.new(1, 1.2)
-		e.Rate = strong and 2500 or 1200
+		e.Rate = strong and 6000 or 3000
+		e.Acceleration = Vector3.new(8, 0, 4)
 		e.Orientation = Enum.ParticleOrientation.VelocityParallel
 	end
 	e.Parent = sky
@@ -2295,12 +2401,30 @@ local function runEvent()
 
 	local sky = nil
 	local running = true
+	-- 天気の異変：イベント中は台の卵に天気の異変がつく
+	weather.mutation = ev.Name
+	task.spawn(function()
+		while running do
+			for _, st in pairs(states) do
+				if st.base and st.items then
+					for i = 1, st.slots do
+						local it = st.items[i]
+						if it and it.k == "egg" and not it.m and not st.base.busy[i] then
+							it.m = ev.Name
+							refreshSlot(st.base, i)
+						end
+					end
+				end
+			end
+			task.wait(3)
+		end
+	end)
 	if ev.Name == "雪" then
 		weather.spawnMult = anomaly and 3 or 2
 		sky = makeSky("雪", anomaly)
 		Lighting.OutdoorAmbient = Color3.fromRGB(200, 210, 230)
 		if atmo then
-			atmo.Density = 0.45
+			atmo.Density = 0.7
 			atmo.Color = Color3.fromRGB(230, 235, 245)
 		end
 	elseif ev.Name == "雨" then
@@ -2308,7 +2432,7 @@ local function runEvent()
 		sky = makeSky("雨", anomaly)
 		Lighting.Brightness = math.min(saved.Brightness, 1)
 		if atmo then
-			atmo.Density = 0.4
+			atmo.Density = 0.6
 			atmo.Color = Color3.fromRGB(150, 160, 175)
 		end
 	elseif ev.Name == "雷" then
@@ -2320,7 +2444,13 @@ local function runEvent()
 		task.spawn(function()
 			while running do
 				strikeLightning(anomaly and Config.BaseRingRadius + 20 or Config.FieldRadius + 30)
-				task.wait(anomaly and 1 or 3)
+				-- 空がピカッと光る
+				local b = Lighting.Brightness
+				Lighting.Brightness = b + 4
+				task.delay(0.1, function()
+					Lighting.Brightness = b
+				end)
+				task.wait(anomaly and 0.6 or 2)
 			end
 		end)
 	elseif ev.Name == "太陽" then
@@ -2332,14 +2462,6 @@ local function runEvent()
 			atmo.Color = Color3.fromRGB(255, 240, 200)
 		end
 	end
-	if anomaly then
-		-- 異変：空があやしい色になる
-		Lighting.Ambient = Color3.fromRGB(120, 0, 120)
-		Lighting.OutdoorAmbient = Color3.fromRGB(180, 40, 160)
-		if atmo then
-			atmo.Color = Color3.fromRGB(200, 60, 180)
-		end
-	end
 	local title = (anomaly and "【異変】" or "") .. ev.Icon .. ev.Name .. "イベント"
 	workspace:SetAttribute("WeatherEvent", title)
 	workspace:SetAttribute("EventEndsAt", workspace:GetServerTimeNow() + Config.EventDuration)
@@ -2349,6 +2471,7 @@ local function runEvent()
 
 	running = false
 	weather.incomeMult, weather.spawnMult, weather.rareBoost = 1, 1, 1
+	weather.mutation = nil
 	if sky then
 		sky:Destroy()
 	end
@@ -2527,7 +2650,7 @@ CageAction.OnServerEvent:Connect(function(player, action, index, key)
 		return
 	end
 	local item = st.cage[index]
-	if not item or (item.r .. "_" .. item.s) ~= key then
+	if not item or itemKey(item) ~= key then
 		return
 	end
 	if action == "sell" then

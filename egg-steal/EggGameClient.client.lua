@@ -355,8 +355,9 @@ local function refreshCageList()
 	end
 	cageTitle.Text = "檻のペット  " .. #keys .. " / " .. Config.CageMax
 	for i, key in ipairs(keys) do
-		local r, sIdx = string.match(key, "^(%d+)_(%d+)$")
+		local r, sIdx, mName = string.match(key, "^(%d+)_(%d+)_?(.*)$")
 		r, sIdx = tonumber(r), tonumber(sIdx)
+		local mut = Config.Mutations and mName and Config.Mutations[mName]
 		local rar = r and Config.Rarities[r]
 		local sp = rar and Config.Species[r] and Config.Species[r][sIdx]
 		if sp then
@@ -375,11 +376,12 @@ local function refreshCageList()
 			label.TextScaled = true
 			label.TextXAlignment = Enum.TextXAlignment.Left
 			label.TextColor3 = Color3.new(1, 1, 1)
-			label.Text = sp.Name .. "（" .. rar.Name .. "）  +" .. formatNumber(sp.Income) .. "/秒"
+			local income = sp.Income * (mut and mut.Mult or 1)
+			label.Text = (mut and (mut.Icon .. mName .. " ") or "") .. sp.Name .. "（" .. rar.Name .. "）  +" .. formatNumber(income) .. "/秒"
 			label.ZIndex = 13
 			label.Parent = row
 			local holdB = cageRowButton(row, "持つ", Color3.fromRGB(60, 140, 230), 1, -92)
-			local sellB = cageRowButton(row, "売る $" .. formatNumber(sp.Income * Config.SellMultiplier), Color3.fromRGB(230, 150, 40), 1, -6)
+			local sellB = cageRowButton(row, "売る $" .. formatNumber(income * Config.SellMultiplier), Color3.fromRGB(230, 150, 40), 1, -6)
 			holdB.Activated:Connect(function()
 				remotes.CageAction:FireServer("hold", i, key)
 			end)
