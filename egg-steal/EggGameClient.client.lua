@@ -88,10 +88,14 @@ panel.BackgroundTransparency = 1
 panel.Parent = gui
 local layout = Instance.new("UIListLayout")
 layout.Padding = UDim.new(0, 5)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.Parent = panel
 
+local nextOrder = 0
 local function makeButton(color)
 	local b = Instance.new("TextButton")
+	nextOrder += 1
+	b.LayoutOrder = nextOrder
 	b.Size = UDim2.new(1, 0, 0, 36)
 	b.BackgroundColor3 = color
 	b.Font = Enum.Font.GothamBold
@@ -111,6 +115,52 @@ end
 
 local slotButton = makeButton(Color3.fromRGB(60, 140, 230))
 local speedButton = makeButton(Color3.fromRGB(60, 180, 100))
+
+-- 速さの調整（－ / ＋ で5ずつ。買った速さより速くはできない）
+local speedRow = Instance.new("Frame")
+nextOrder += 1
+speedRow.LayoutOrder = nextOrder
+speedRow.Size = UDim2.new(1, 0, 0, 28)
+speedRow.BackgroundTransparency = 1
+speedRow.Parent = panel
+local function smallButton(text, x)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(0, 28, 1, 0)
+	b.Position = UDim2.new(x, x == 0 and 0 or -28, 0, 0)
+	b.BackgroundColor3 = Color3.fromRGB(40, 140, 80)
+	b.Font = Enum.Font.GothamBold
+	b.TextScaled = true
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Text = text
+	b.Parent = speedRow
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+	return b
+end
+local speedDown = smallButton("－", 0)
+local speedUp = smallButton("＋", 1)
+local speedValue = Instance.new("TextLabel")
+speedValue.Size = UDim2.new(1, -60, 1, 0)
+speedValue.Position = UDim2.fromOffset(30, 0)
+speedValue.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+speedValue.BackgroundTransparency = 0.3
+speedValue.Font = Enum.Font.GothamBold
+speedValue.TextScaled = true
+speedValue.TextColor3 = Color3.new(1, 1, 1)
+speedValue.Parent = speedRow
+Instance.new("UICorner", speedValue).CornerRadius = UDim.new(0, 8)
+local function maxSpeed()
+	return Config.BaseWalkSpeed + (player:GetAttribute("SpeedLevel") or 0) * Config.SpeedPerLevel
+end
+local function currentSpeed()
+	return player:GetAttribute("SpeedSetting") or maxSpeed()
+end
+speedDown.Activated:Connect(function()
+	remotes.SetSpeed:FireServer(math.max(1, currentSpeed() - 5))
+end)
+speedUp.Activated:Connect(function()
+	local v = currentSpeed() + 5
+	remotes.SetSpeed:FireServer(v < maxSpeed() and v or nil)
+end)
 local lockButton = makeButton(Color3.fromRGB(220, 70, 70))
 local shoveButton = makeButton(Color3.fromRGB(230, 150, 40))
 shoveButton.Text = "押す [F]"
@@ -119,7 +169,7 @@ dropButton.Text = "落とす [G]"
 dropButton.Visible = false -- 何か持っているときだけ表示
 local indexButton = makeButton(Color3.fromRGB(150, 90, 220))
 indexButton.Text = "インデックス"
-panel.Size = UDim2.fromOffset(130, 250)
+panel.Size = UDim2.fromOffset(130, 290)
 
 -- 次の天気イベントまでの時間（画面の上）
 local eventLabel = Instance.new("TextLabel")
@@ -675,6 +725,8 @@ while true do
 	else
 		speedButton.Text = "スピードUP Lv" .. level .. "\n$" .. formatNumber(Config.SpeedCost(level))
 	end
+
+	speedValue.Text = "速さ " .. math.floor(currentSpeed())
 
 	local t = workspace:GetServerTimeNow()
 	local lockedUntil = player:GetAttribute("LockedUntil") or 0

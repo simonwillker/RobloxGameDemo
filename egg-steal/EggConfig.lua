@@ -8,7 +8,7 @@ local Config = {}
 Config.MaxBases = 8            -- ベースの数 = 1サーバーの最大人数にする
 Config.BaseRingRadius = 160    -- 中央の卵畑からベースまでの距離（大きいほど遠い）
 Config.BaseSize = 70           -- ベースの床の大きさ
-Config.MaxSlots = 10           -- 卵を置ける台の最大数
+Config.MaxSlots = 15           -- 卵を置ける台の最大数（1〜10番は1階、11〜15番は2階）
 Config.StartSlots = 3          -- 最初に使える台の数
 
 -- お金とアップグレード

@@ -39,6 +39,7 @@ local Shove = makeRemote("Shove")
 local Notify = makeRemote("Notify")
 local DropItem = makeRemote("DropItem")
 local RedeemCode = makeRemote("RedeemCode")
+local SetSpeed = makeRemote("SetSpeed")
 
 local function notify(player, text)
 	if player and player.Parent then
@@ -840,8 +841,8 @@ local function buildBase(index)
 		Name = "Floor",
 		Size = Vector3.new(S, 1, S),
 		CFrame = cf * CFrame.new(0, 0.5, 0),
-		Color = Color3.fromRGB(200, 200, 200),
-		Material = Enum.Material.Concrete,
+		Color = Color3.fromRGB(245, 245, 245),
+		Material = Enum.Material.SmoothPlastic,
 		Parent = model,
 	})
 
@@ -885,12 +886,73 @@ local function buildBase(index)
 	wall(Vector3.new(frontWidth, 10, 1), CFrame.new(6 + frontWidth / 2, 6, -HALF))
 	wall(Vector3.new(12, 3, 1), CFrame.new(0, 9.5, -HALF)) -- 入口の上
 
+	-- 2階（床の高さ12）。左の壁ぞいの階段で上がる
+	local F2 = 12 -- 2階の床の上の高さ
+	local STAIR_X1, STAIR_X2 = -HALF, -HALF + 5 -- 階段の幅（左の壁ぞい）
+	local STAIR_Z1 = -HALF + 12 -- 階段の下の端
+	local STEPS = F2 - 1 -- 段の数（1段の高さ1）
+	local STAIR_Z2 = STAIR_Z1 + STEPS * 2 -- 階段の上の端
+	local floorColor = Color3.fromRGB(245, 245, 245)
+	local function floorPiece(x1, x2, z1, z2)
+		if x2 - x1 > 0.05 and z2 - z1 > 0.05 then
+			makePart({
+				Name = "Floor2",
+				Size = Vector3.new(x2 - x1, 1, z2 - z1),
+				CFrame = cf * CFrame.new((x1 + x2) / 2, F2 - 0.5, (z1 + z2) / 2),
+				Color = floorColor,
+				Parent = model,
+			})
+		end
+	end
+	floorPiece(STAIR_X2, HALF, -HALF, HALF) -- 階段の穴以外
+	floorPiece(STAIR_X1, STAIR_X2, -HALF, STAIR_Z1)
+	floorPiece(STAIR_X1, STAIR_X2, STAIR_Z2, HALF)
+	for i = 1, STEPS do
+		makePart({
+			Name = "Stair",
+			Size = Vector3.new(STAIR_X2 - STAIR_X1 - 0.5, i, 2),
+			CFrame = cf * CFrame.new((STAIR_X1 + STAIR_X2) / 2 + 0.25, 1 + i / 2, STAIR_Z1 + (i - 0.5) * 2),
+			Color = color:Lerp(WHITE, 0.5),
+			Parent = model,
+		})
+	end
+	-- 2階の壁（全部ガラス）
+	wall(Vector3.new(S, 10, 1), CFrame.new(0, F2 + 5, HALF))
+	wall(Vector3.new(S, 10, 1), CFrame.new(0, F2 + 5, -HALF))
+	wall(Vector3.new(1, 10, S), CFrame.new(-HALF, F2 + 5, 0))
+	wall(Vector3.new(1, 10, S), CFrame.new(HALF, F2 + 5, 0))
+	local TOP = F2 + 10 -- 2階の天井の高さ
+
+	-- 照明（明るく）：1階と2階の天井にライト
+	for _, y in ipairs({ F2 - 1.2, TOP - 0.2 }) do
+		for _, x in ipairs({ -HALF / 2, HALF / 2 }) do
+			for _, z in ipairs({ -HALF / 2, HALF / 2 }) do
+				local lamp = makePart({
+					Name = "Lamp",
+					Size = Vector3.new(4, 0.3, 4),
+					CFrame = cf * CFrame.new(x, y, z),
+					Color = Color3.fromRGB(255, 250, 225),
+					Material = Enum.Material.Neon,
+					CanCollide = false,
+					CastShadow = false,
+					Parent = model,
+				})
+				local light = Instance.new("PointLight")
+				light.Brightness = 2.5
+				light.Range = 32
+				light.Color = Color3.fromRGB(255, 245, 220)
+				light.Shadows = false
+				light.Parent = lamp
+			end
+		end
+	end
+
 	-- 屋根（天井の板＋三角屋根）
 	local roofColor = color:Lerp(Color3.new(0, 0, 0), 0.35)
 	makePart({
 		Name = "Ceiling",
 		Size = Vector3.new(S + 2, 1, S + 2),
-		CFrame = cf * CFrame.new(0, 11.5, 0),
+		CFrame = cf * CFrame.new(0, TOP + 0.5, 0),
 		Color = Color3.fromRGB(235, 235, 235),
 		Parent = model,
 	})
@@ -901,7 +963,7 @@ local function buildBase(index)
 		makePart({
 			Name = "Roof",
 			Size = Vector3.new(slope, 1, S + 4),
-			CFrame = cf * CFrame.new(side * (HALF + 2) / 2, 12 + rise / 2, 0) * CFrame.Angles(0, 0, -side * pitch),
+			CFrame = cf * CFrame.new(side * (HALF + 2) / 2, TOP + 1 + rise / 2, 0) * CFrame.Angles(0, 0, -side * pitch),
 			Color = roofColor,
 			Material = Enum.Material.Slate,
 			Parent = model,
@@ -917,7 +979,7 @@ local function buildBase(index)
 				Parent = model,
 			}, "WedgePart")
 			-- 高い方を真ん中に向ける
-			wedge.CFrame = cf * CFrame.new(side * (HALF + 1) / 2, 12 + rise / 2, z) * CFrame.Angles(0, -side * math.pi / 2, 0)
+			wedge.CFrame = cf * CFrame.new(side * (HALF + 1) / 2, TOP + 1 + rise / 2, z) * CFrame.Angles(0, -side * math.pi / 2, 0)
 		end
 	end
 
@@ -941,15 +1003,18 @@ local function buildBase(index)
 		CanCollide = false,
 		Parent = model,
 	})
-	base.signLabel = makeLabel(signAnchor, "空きベース", WHITE, UDim2.fromOffset(260, 60), 16, 300)
+	base.signLabel = makeLabel(signAnchor, "空きベース", WHITE, UDim2.fromOffset(260, 60), TOP + rise + 6, 400)
 
 	for i = 1, Config.MaxSlots do
 		local row = math.floor((i - 1) / 5)
 		local col = (i - 1) % 5
+		-- 1〜10番は1階、11番から先は2階
+		local floorY = row >= 2 and F2 or 1
+		local rowZ = row >= 2 and (row - 2) * 8 + 6 or row * 8 + 6
 		local ped = makePart({
 			Name = "Slot" .. i,
 			Size = Vector3.new(4, 2, 4),
-			CFrame = cf * CFrame.new((-16 + col * 8) * S / 44, 2, (6 + row * 8) * S / 44), -- ベースの広さに合わせて広げる
+			CFrame = cf * CFrame.new((-16 + col * 8) * S / 44, floorY + 1, rowZ * S / 44), -- ベースの広さに合わせて広げる
 			Color = Color3.fromRGB(120, 120, 120),
 			Material = Enum.Material.Marble,
 			Transparency = 0.75,
@@ -1055,7 +1120,7 @@ print("[卵どろぼう] マップ作成OK")
 
 local function insideBase(base, pos)
 	local p = base.cf:PointToObjectSpace(pos)
-	return math.abs(p.X) < HALF and math.abs(p.Z) < HALF and p.Y > -5 and p.Y < 30
+	return math.abs(p.X) < HALF and math.abs(p.Z) < HALF and p.Y > -5 and p.Y < 40
 end
 
 local function insideCage(base, pos)
@@ -1521,6 +1586,10 @@ local function updateSpeed(player)
 		return
 	end
 	local speed = Config.BaseWalkSpeed + st.speedLevel * Config.SpeedPerLevel
+	if st.speedSetting then
+		-- 自分で決めた速さ（買った速さまで）
+		speed = math.clamp(st.speedSetting, 1, speed)
+	end
 	if st.carrying then
 		speed *= Config.CarrySpeedMultiplier
 	end
@@ -1769,6 +1838,23 @@ end)
 --------------------------------------------------------------------------
 -- ボタン操作（アップグレード / ロック / 押す）
 --------------------------------------------------------------------------
+-- 速さの調整（買った速さまでなら自由に下げられる。nil で最大にもどす）
+SetSpeed.OnServerEvent:Connect(function(player, value)
+	local st = states[player]
+	if not st then
+		return
+	end
+	local maxSpeed = Config.BaseWalkSpeed + st.speedLevel * Config.SpeedPerLevel
+	if type(value) == "number" and value == value then
+		value = math.clamp(math.floor(value), 1, maxSpeed)
+		st.speedSetting = value < maxSpeed and value or nil
+	else
+		st.speedSetting = nil
+	end
+	player:SetAttribute("SpeedSetting", st.speedSetting)
+	updateSpeed(player)
+end)
+
 BuyUpgrade.OnServerEvent:Connect(function(player, kind)
 	local st = states[player]
 	if not st then
