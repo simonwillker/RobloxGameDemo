@@ -167,9 +167,12 @@ shoveButton.Text = "押す [F]"
 local dropButton = makeButton(Color3.fromRGB(120, 120, 140))
 dropButton.Text = "落とす [G]"
 dropButton.Visible = false -- 何か持っているときだけ表示
+local adminButton = makeButton(Color3.fromRGB(40, 40, 40))
+adminButton.Text = "管理者"
+adminButton.Visible = false -- 管理者だけ
 local indexButton = makeButton(Color3.fromRGB(150, 90, 220))
 indexButton.Text = "インデックス"
-panel.Size = UDim2.fromOffset(130, 290)
+panel.Size = UDim2.fromOffset(130, 320)
 
 -- 次の天気イベントまでの時間（画面の上）
 local eventLabel = Instance.new("TextLabel")
@@ -265,6 +268,63 @@ end)
 
 dropButton.Activated:Connect(function()
 	remotes.DropItem:FireServer()
+end)
+
+--------------------------------------------------------------------------
+-- 管理者の設定画面（管理者だけに「管理者」ボタンが出る。サーバーでも管理者か確認する）
+--------------------------------------------------------------------------
+local adminWindow = Instance.new("Frame")
+adminWindow.AnchorPoint = Vector2.new(1, 0.5)
+adminWindow.Position = UDim2.new(1, -156, 0.5, 0)
+adminWindow.Size = UDim2.fromOffset(170, 220)
+adminWindow.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+adminWindow.BackgroundTransparency = 0.1
+adminWindow.Visible = false
+adminWindow.Parent = gui
+Instance.new("UICorner", adminWindow).CornerRadius = UDim.new(0, 10)
+local adminPad = Instance.new("UIPadding")
+adminPad.PaddingTop = UDim.new(0, 8)
+adminPad.PaddingBottom = UDim.new(0, 8)
+adminPad.PaddingLeft = UDim.new(0, 8)
+adminPad.PaddingRight = UDim.new(0, 8)
+adminPad.Parent = adminWindow
+local adminLayout = Instance.new("UIListLayout")
+adminLayout.Padding = UDim.new(0, 6)
+adminLayout.SortOrder = Enum.SortOrder.LayoutOrder
+adminLayout.Parent = adminWindow
+local function adminItem(text, color, order, action)
+	local b = Instance.new("TextButton")
+	b.LayoutOrder = order
+	b.Size = UDim2.new(1, 0, 0, 34)
+	b.BackgroundColor3 = color
+	b.Font = Enum.Font.GothamBold
+	b.TextScaled = true
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Text = text
+	b.Parent = adminWindow
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+	if action then
+		b.Activated:Connect(function()
+			remotes.AdminAction:FireServer(action)
+		end)
+	end
+	return b
+end
+local adminTitle = Instance.new("TextLabel")
+adminTitle.LayoutOrder = 0
+adminTitle.Size = UDim2.new(1, 0, 0, 24)
+adminTitle.BackgroundTransparency = 1
+adminTitle.Font = Enum.Font.GothamBold
+adminTitle.TextScaled = true
+adminTitle.TextColor3 = Color3.fromRGB(255, 220, 80)
+adminTitle.Text = "管理者の設定"
+adminTitle.Parent = adminWindow
+local flyToggle = adminItem("飛ぶ：OFF", Color3.fromRGB(60, 140, 230), 1, "fly")
+adminItem("🌈 OGイベント開始", Color3.fromRGB(220, 60, 180), 2, "og")
+adminItem("天気イベント開始", Color3.fromRGB(60, 170, 120), 3, "weather")
+adminItem("810の卵をもらう", Color3.fromRGB(0, 170, 160), 4, "egg810")
+adminButton.Activated:Connect(function()
+	adminWindow.Visible = not adminWindow.Visible
 end)
 
 --------------------------------------------------------------------------
@@ -556,6 +616,12 @@ local function toggleFly()
 		startFly()
 	end
 end
+-- 管理者が「飛ぶ」をOFFにしたら着地する
+player:GetAttributeChangedSignal("CanFly"):Connect(function()
+	if flying and not player:GetAttribute("CanFly") then
+		stopFly()
+	end
+end)
 player.CharacterAdded:Connect(function()
 	flying = false
 	flyVel, flyGyro = nil, nil
@@ -691,7 +757,7 @@ end)
 --------------------------------------------------------------------------
 local stealPrompts = {}
 local function track(obj)
-	if obj:IsA("ProximityPrompt") and (obj:GetAttribute("StealPrompt") or obj:GetAttribute("CagePrompt")) then
+	if obj:IsA("ProximityPrompt") and (obj:GetAttribute("StealPrompt") or obj:GetAttribute("OwnerOnlyPrompt")) then
 		table.insert(stealPrompts, obj)
 	end
 end
@@ -745,13 +811,13 @@ while true do
 		end
 	end
 	for _, prompt in ipairs(stealPrompts) do
-		if prompt:GetAttribute("CagePrompt") then
-			-- 「檻に入れる」は持ち主にだけ見せる
+		if prompt:GetAttribute("OwnerOnlyPrompt") then
+			-- 「持つ」は持ち主にだけ見せる
 			prompt.Style = prompt:GetAttribute("OwnerUserId") == player.UserId and Enum.ProximityPromptStyle.Default or Enum.ProximityPromptStyle.Custom
 		elseif prompt:GetAttribute("OwnerUserId") ~= player.UserId then
 			prompt.ActionText = "盗む"
 		elseif prompt:GetAttribute("Cage") then
-			prompt.ActionText = "台に戻す"
+			prompt.ActionText = "持つ"
 		elseif prompt:GetAttribute("ItemKind") == "egg" then
 			prompt.ActionText = "開ける"
 		else
@@ -760,6 +826,11 @@ while true do
 	end
 
 	dropButton.Visible = player:GetAttribute("Carrying") ~= nil
+	dropButton.Text = player:GetAttribute("CanPlace") and "置く [G]" or "落とす [G]"
+	adminButton.Visible = player:GetAttribute("IsAdmin") == true
+	if adminWindow.Visible then
+		flyToggle.Text = player:GetAttribute("CanFly") and "飛ぶ：ON" or "飛ぶ：OFF"
+	end
 
 	task.wait(0.2)
 end

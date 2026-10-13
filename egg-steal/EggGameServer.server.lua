@@ -40,6 +40,7 @@ local Notify = makeRemote("Notify")
 local DropItem = makeRemote("DropItem")
 local RedeemCode = makeRemote("RedeemCode")
 local SetSpeed = makeRemote("SetSpeed")
+local AdminAction = makeRemote("AdminAction")
 
 local function notify(player, text)
 	if player and player.Parent then
@@ -754,9 +755,10 @@ local bases = {}
 
 -- 前方宣言
 local startCarry
+local tryPlace
 local refreshSlot
 local hatchSlot
-local moveToCage
+local pickUpSlot
 
 -- 管理者 = ゲームの持ち主（グループのゲームならグループのオーナー）＋ EggConfig.AdminUserIds の人
 local function isAdmin(player)
@@ -841,7 +843,7 @@ local function buildBase(index)
 		Name = "Floor",
 		Size = Vector3.new(S, 1, S),
 		CFrame = cf * CFrame.new(0, 0.5, 0),
-		Color = Color3.fromRGB(245, 245, 245),
+		Color = Color3.fromRGB(225, 225, 225),
 		Material = Enum.Material.SmoothPlastic,
 		Parent = model,
 	})
@@ -892,7 +894,7 @@ local function buildBase(index)
 	local STAIR_Z1 = -HALF + 12 -- 階段の下の端
 	local STEPS = F2 - 1 -- 段の数（1段の高さ1）
 	local STAIR_Z2 = STAIR_Z1 + STEPS * 2 -- 階段の上の端
-	local floorColor = Color3.fromRGB(245, 245, 245)
+	local floorColor = Color3.fromRGB(225, 225, 225)
 	local function floorPiece(x1, x2, z1, z2)
 		if x2 - x1 > 0.05 and z2 - z1 > 0.05 then
 			makePart({
@@ -929,17 +931,17 @@ local function buildBase(index)
 			for _, z in ipairs({ -HALF / 2, HALF / 2 }) do
 				local lamp = makePart({
 					Name = "Lamp",
-					Size = Vector3.new(4, 0.3, 4),
+					Size = Vector3.new(3, 0.3, 3),
 					CFrame = cf * CFrame.new(x, y, z),
-					Color = Color3.fromRGB(255, 250, 225),
-					Material = Enum.Material.Neon,
+					Color = Color3.fromRGB(230, 225, 205),
+					Material = Enum.Material.SmoothPlastic,
 					CanCollide = false,
 					CastShadow = false,
 					Parent = model,
 				})
 				local light = Instance.new("PointLight")
-				light.Brightness = 2.5
-				light.Range = 32
+				light.Brightness = 0.7
+				light.Range = 22
 				light.Color = Color3.fromRGB(255, 245, 220)
 				light.Shadows = false
 				light.Parent = lamp
@@ -1034,10 +1036,10 @@ local function buildBase(index)
 		prompt.Triggered:Connect(function(player)
 			onSlotPrompt(base, i, player)
 		end)
-		-- 自分の生き物を檻に入れる（持ち主にだけ見える。R キー）
+		-- 自分の卵・生き物を持つ（持ち主にだけ見える。R キー）
 		local cagePrompt = Instance.new("ProximityPrompt")
-		cagePrompt.Name = "CagePrompt"
-		cagePrompt.ActionText = "檻に入れる"
+		cagePrompt.Name = "HoldPrompt"
+		cagePrompt.ActionText = "持つ"
 		cagePrompt.KeyboardKeyCode = Enum.KeyCode.R
 		cagePrompt.GamepadKeyCode = Enum.KeyCode.ButtonY
 		cagePrompt.HoldDuration = 0.3
@@ -1045,11 +1047,11 @@ local function buildBase(index)
 		cagePrompt.RequiresLineOfSight = false
 		cagePrompt.UIOffset = Vector2.new(0, 90)
 		cagePrompt.Enabled = false
-		cagePrompt:SetAttribute("CagePrompt", true)
+		cagePrompt:SetAttribute("OwnerOnlyPrompt", true)
 		cagePrompt:SetAttribute("OwnerUserId", 0)
 		cagePrompt.Parent = ped
 		cagePrompt.Triggered:Connect(function(player)
-			moveToCage(base, i, player)
+			pickUpSlot(base, i, player)
 		end)
 		base.slotParts[i] = ped
 	end
@@ -1156,7 +1158,7 @@ function refreshSlot(base, i)
 	prompt.Enabled = item ~= nil and not base.busy[i]
 	prompt.ObjectText = item and (itemInfo(item)) or ""
 	prompt:SetAttribute("ItemKind", item and item.k or "")
-	ped.CagePrompt.Enabled = item ~= nil and item.k == "pet" and not base.busy[i]
+	ped.HoldPrompt.Enabled = item ~= nil and not base.busy[i]
 end
 
 --------------------------------------------------------------------------
@@ -1211,24 +1213,23 @@ local function freeSlot(st)
 	return nil
 end
 
-function moveToCage(base, slot, player)
+function pickUpSlot(base, slot, player)
 	local st = states[player]
 	if not st or base.owner ~= player or base.busy[slot] then
 		return
 	end
 	local item = st.items[slot]
-	if not item or item.k ~= "pet" then
+	if not item then
 		return
 	end
-	if #st.cage >= Config.CageMax then
-		notify(player, "檻がいっぱい！（" .. Config.CageMax .. "匹まで）")
+	if st.carrying then
+		notify(player, "1個しか持てない！")
 		return
 	end
 	st.items[slot] = nil
-	table.insert(st.cage, item)
 	refreshSlot(base, slot)
-	refreshCage(base)
-	notify(player, itemInfo(item) .. "を檻に入れた！")
+	startCarry(player, item, { owner = player, slot = slot })
+	notify(player, itemInfo(item) .. "を持った！置きたいところで [G]（置くボタン）")
 end
 
 function onCagePrompt(base, item, player)
@@ -1244,17 +1245,15 @@ function onCagePrompt(base, item, player)
 	end
 	local name = itemInfo(item)
 	if player == owner then
-		-- 台に戻す
-		local free = freeSlot(st)
-		if not free then
-			notify(player, "台がいっぱい！")
+		-- 自分の生き物を持つ
+		if st.carrying then
+			notify(player, "1個しか持てない！")
 			return
 		end
 		table.remove(st.cage, idx)
-		st.items[free] = item
-		refreshSlot(base, free)
 		refreshCage(base)
-		notify(player, name .. "を台に戻した")
+		startCarry(player, item, { owner = player, cage = true })
+		notify(player, name .. "を持った！置きたいところで [G]（置くボタン）")
 		return
 	end
 	if now() < base.lockedUntil then
@@ -1309,7 +1308,7 @@ local function refreshBase(base)
 	local ownerId = base.owner and base.owner.UserId or 0
 	for _, ped in ipairs(base.slotParts) do
 		ped.StealPrompt:SetAttribute("OwnerUserId", ownerId)
-		ped.CagePrompt:SetAttribute("OwnerUserId", ownerId)
+		ped.HoldPrompt:SetAttribute("OwnerUserId", ownerId)
 	end
 	refreshCage(base)
 end
@@ -2000,6 +1999,12 @@ end)
 DropItem.OnServerEvent:Connect(function(player)
 	local st = states[player]
 	if st and st.carrying then
+		-- 自分のベース・檻の中なら「置く」
+		local root = getRoot(player)
+		if root and (insideBase(st.base, root.Position) or insideCage(st.base, root.Position)) then
+			tryPlace(player, st, root, true)
+			return
+		end
 		local name = itemInfo(st.carrying.item)
 		dropCarry(player, true)
 		notify(player, name .. "を落とした")
@@ -2054,6 +2059,53 @@ Shove.OnServerEvent:Connect(function(player)
 end)
 
 --------------------------------------------------------------------------
+-- 持っている物を自分のベース / 檻に置く
+-- manual = true は [G] で置いたとき。檻の中なら檻へ、ベースの中なら台へ。
+-- 自動のときは、生き物は檻（いっぱいなら台）、卵は台へ。
+--------------------------------------------------------------------------
+function tryPlace(player, st, root, manual)
+	local item = st.carrying.item
+	local inCage = insideCage(st.base, root.Position)
+	local inBase = insideBase(st.base, root.Position)
+	if not inCage and not inBase then
+		return false
+	end
+	local name = itemInfo(item)
+	if item.k == "pet" and (inCage or not manual) and #st.cage < Config.CageMax then
+		stopCarry(player)
+		table.insert(st.cage, item)
+		refreshCage(st.base)
+		notify(player, name .. "を檻に入れた！")
+		discover(player, st, item)
+		return true
+	end
+	if inBase then
+		local free = freeSlot(st)
+		if free then
+			stopCarry(player)
+			st.items[free] = item
+			refreshSlot(st.base, free)
+			if item.k == "egg" then
+				notify(player, "卵を置いた！台でEを長押しすると開けられるよ")
+			else
+				notify(player, name .. "を台に置いた！")
+				discover(player, st, item)
+			end
+			return true
+		end
+		if manual or now() - (st.fullWarned or 0) > 3 then
+			st.fullWarned = now()
+			notify(player, "台がいっぱい！台を増やすか、生き物を売ろう")
+		end
+		return false
+	end
+	if manual then
+		notify(player, item.k == "egg" and "卵はベースの台に置いてね" or "檻がいっぱい！")
+	end
+	return false
+end
+
+--------------------------------------------------------------------------
 -- メインループ
 --------------------------------------------------------------------------
 -- ベースに置く / ロック中の侵入者を外に出す（0.2秒ごと）
@@ -2063,39 +2115,15 @@ task.spawn(function()
 		local t = now()
 		for player, st in pairs(states) do
 			local root = getRoot(player)
-			local carriedPet = st.carrying and st.carrying.item.k == "pet"
-			if carriedPet and root and #st.cage < Config.CageMax and (insideBase(st.base, root.Position) or insideCage(st.base, root.Position)) then
-				-- 生き物は檻に入れる
-				local item = st.carrying.item
-				stopCarry(player)
-				table.insert(st.cage, item)
-				refreshCage(st.base)
-				notify(player, itemInfo(item) .. "を檻に入れた！")
-				discover(player, st, item)
-			elseif st.carrying and root and insideBase(st.base, root.Position) then
-				local free = nil
-				for i = 1, st.slots do
-					if st.items[i] == nil and not st.base.busy[i] then
-						free = i
-						break
-					end
-				end
-				if free then
-					local item = st.carrying.item
-					stopCarry(player)
-					st.items[free] = item
-					refreshSlot(st.base, free)
-					if item.k == "egg" then
-						notify(player, "卵を置いた！台でEを長押しすると開けられるよ")
-					else
-						notify(player, itemInfo(item) .. "を置いた！")
-						discover(player, st, item)
-					end
-				elseif t - (st.fullWarned or 0) > 3 then
-					st.fullWarned = t
-					notify(player, "台がいっぱい！台を増やすか、生き物を売ろう")
+			if st.carrying and root then
+				local from = st.carrying.from
+				-- 自分で持ち上げた物は自動で置かない（[G] で置く）。拾った物・盗んだ物は自動で置く
+				if not (from and from.owner == player) then
+					tryPlace(player, st, root, false)
 				end
 			end
+			local canPlace = st.carrying ~= nil and root ~= nil and (insideBase(st.base, root.Position) or insideCage(st.base, root.Position))
+			player:SetAttribute("CanPlace", canPlace or nil)
 		end
 		for _, base in ipairs(bases) do
 			local locked = base.owner ~= nil and t < base.lockedUntil
@@ -2443,3 +2471,33 @@ do
 		task.spawn(runOGEvent)
 	end)
 end
+
+--------------------------------------------------------------------------
+-- 管理者の設定画面（クライアントの「管理者」ボタンから）
+--------------------------------------------------------------------------
+AdminAction.OnServerEvent:Connect(function(player, action)
+	local st = states[player]
+	if not st or not isAdmin(player) then
+		return
+	end
+	if action == "fly" then
+		local on = not player:GetAttribute("CanFly")
+		player:SetAttribute("CanFly", on or nil)
+		notify(player, on and "飛べるようになった！ジャンプを2回押してね" or "飛ぶのをOFFにした")
+	elseif action == "og" then
+		if ogActive then
+			notify(player, "今はOGイベント中だよ")
+		else
+			task.spawn(runOGEvent)
+		end
+	elseif action == "weather" then
+		if currentEvent then
+			notify(player, "今は天気イベント中だよ")
+		else
+			task.spawn(runEvent)
+		end
+	elseif action == "egg810" then
+		local _, message = give810Egg(player, st)
+		notify(player, message)
+	end
+end)
